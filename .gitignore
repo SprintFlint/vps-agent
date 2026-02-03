@@ -1,0 +1,27 @@
+# Dependencies
+vendor/bundle
+Gemfile.lock
+
+# Build artifacts
+*.gem
+pkg/
+
+# Config and logs (contains sensitive data)
+/.vps-agent/
+config.json
+*.log
+
+# Test artifacts
+.rspec_status
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

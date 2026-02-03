@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  vps-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sprintflint/vps-agent:latest
+    container_name: vps-agent
+    restart: unless-stopped
+    
+    # Environment variables
+    environment:
+      # Required: Your SprintFlint API token
+      - SPRINTFLINT_TOKEN=${SPRINTFLINT_TOKEN}
+      
+      # Optional: Custom API URL (defaults to https://api.sprintflint.com)
+      # - SPRINTFLINT_API_URL=https://api.sprintflint.com
+    
+    # Persistent storage for configuration and logs
+    volumes:
+      - vps-agent-data:/home/vps-agent/.vps-agent
+      
+    # If you need to run Docker commands from within the agent (Docker-in-Docker)
+    # Uncomment the following lines:
+    # - /var/run/docker.sock:/var/run/docker.sock
+    
+    # Network configuration
+    networks:
+      - vps-agent-network
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "bundle", "exec", "ruby", "bin/vps-agent", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  vps-agent-data:
+    driver: local
+
+networks:
+  vps-agent-network:
+    driver: bridge

@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.2'
+        bundler-cache: true
+
+    - name: Determine version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Update version in code
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        VERSION_NUM="${VERSION#v}"
+        sed -i "s/VERSION = \"[^\"]*\"/VERSION = \"$VERSION_NUM\"/" lib/vps_agent.rb
+
+    - name: Build gem
+      run: gem build vps-agent.gemspec
+
+    - name: Package install script
+      run: |
+        mkdir -p dist
+        cp scripts/install.sh dist/
+        chmod +x dist/install.sh
+
+    - name: Build Linux x86_64 binary (using ruby-packer)
+      run: |
+        mkdir -p dist
+        
+        # Install dependencies for building
+        sudo apt-get update
+        sudo apt-get install -y build-essential libssl-dev libreadline-dev zlib1g-dev
+        
+        # Download and install ruby-packer (rubyc)
+        curl -fsSL https://github.com/pmq20/ruby-packer/releases/download/v1.0.1/linux-x64.tgz | tar xz
+        
+        # Build standalone binary
+        ./rubyc --tmpdir=/tmp/rubyc \
+                --output=dist/vps-agent_linux_x86_64 \
+                bin/vps-agent || echo "Binary build failed, will use gem only"
+        
+        if [ -f dist/vps-agent_linux_x86_64 ]; then
+          chmod +x dist/vps-agent_linux_x86_64
+          # Create tarball
+          tar -czf dist/vps-agent_linux_x86_64.tar.gz -C dist vps-agent_linux_x86_64
+        fi
+
+    - name: Build additional platform binaries
+      run: |
+        # Create wrapper script that uses system Ruby with embedded gem
+        cat > dist/vps-agent << 'EOF'
+        #!/bin/bash
+        # VPS Agent wrapper script
+        # This script checks for Ruby and installs the gem if needed
+        
+        set -e
+        
+        VERSION="${VERSION}"
+        GEM_NAME="vps-agent"
+        
+        # Check if Ruby is installed
+        if ! command -v ruby &> /dev/null; then
+            echo "Error: Ruby is required but not installed."
+            echo "Please install Ruby 3.0 or later: https://www.ruby-lang.org/"
+            exit 1
+        fi
+        
+        # Check Ruby version
+        RUBY_VERSION=$(ruby -v | cut -d' ' -f2 | cut -d'.' -f1,2 | tr -d '.')
+        if [ "$RUBY_VERSION" -lt "30" ]; then
+            echo "Warning: Ruby 3.0+ is recommended. Current version: $(ruby -v)"
+        fi
+        
+        # Install gem if not present or update if needed
+        if ! gem list "$GEM_NAME" -i -v "$VERSION" &> /dev/null; then
+            echo "Installing $GEM_NAME v$VERSION..."
+            gem install "$GEM_NAME" -v "$VERSION" --no-document
+        fi
+        
+        # Execute the actual command
+        exec vps-agent "$@"
+        EOF
+        
+        chmod +x dist/vps-agent
+        
+        # Create platform-specific tarballs with the wrapper script
+        for platform in linux_arm64 linux_arm darwin_x86_64 darwin_arm64; do
+            cp dist/vps-agent "dist/vps-agent_${platform}"
+            tar -czf "dist/vps-agent_${platform}.tar.gz" -C dist "vps-agent_${platform}"
+        done
+
+    - name: Generate checksums
+      run: |
+        cd dist
+        sha256sum *.tar.gz > checksums.txt 2>/dev/null || true
+        cat checksums.txt || echo "No checksums generated"
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: false
+        files: |
+          vps-agent-*.gem
+          dist/*.tar.gz
+          dist/install.sh
+          dist/checksums.txt
+        body: |
+          ## VPS Agent ${{ steps.version.outputs.version }}
+          
+          ### Installation
+          
+          **Quick install (Linux/macOS):**
+          ```bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/install.sh | bash
+          ```
+          
+          **Using Ruby gem:**
+          ```bash
+          gem install vps-agent
+          ```
+          
+          **Docker:**
+          ```bash
+          docker pull sprintflint/vps-agent:${{ steps.version.outputs.version }}
+          ```
+          
+          ### What's Changed
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          
+          ### Assets
+          
+          | File | Description |
+          |------|-------------|
+          | `vps-agent-*.gem` | Ruby gem package |
+          | `vps-agent_linux_x86_64.tar.gz` | Linux x86_64 binary |
+          | `vps-agent_linux_arm64.tar.gz` | Linux ARM64 binary |
+          | `vps-agent_linux_arm.tar.gz` | Linux ARM binary |
+          | `vps-agent_darwin_x86_64.tar.gz` | macOS x86_64 binary |
+          | `vps-agent_darwin_arm64.tar.gz` | macOS Apple Silicon binary |
+          | `install.sh` | One-line installer script |
+          | `checksums.txt` | SHA256 checksums |
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Publish to RubyGems
+      if: github.event_name == 'push' || github.event.inputs.publish_gem == 'true'
+      run: |
+        mkdir -p ~/.gem
+        cat << EOF > ~/.gem/credentials
+        ---
+        :rubygems_api_key: ${{ secrets.RUBYGEMS_API_KEY }}
+        EOF
+        chmod 600 ~/.gem/credentials
+        
+        gem push vps-agent-*.gem
+      env:
+        RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}

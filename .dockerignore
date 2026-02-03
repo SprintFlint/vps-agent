@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Ruby
+*.gem
+.bundle
+vendor/bundle
+Gemfile.lock
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.rspec_status
+coverage/
+spec/
+
+# Development
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+pkg/
+tmp/
+dist/
+build/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI
+.github/
+.travis.yml
+.gitlab-ci.yml
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts (not needed in image)
+scripts/
+
+# Logs
+*.log
