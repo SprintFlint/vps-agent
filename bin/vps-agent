@@ -1,22 +1,22 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative "../lib/vps_agent"
+require_relative '../lib/vps_agent'
 
 module VPSAgent
   class CLI < Thor
-    desc "version", "Show version information"
+    desc 'version', 'Show version information'
     def version
       puts "VPS Agent v#{VPSAgent::VERSION}"
     end
 
-    desc "register", "Register this VPS with SprintFlint"
-    method_option :name, type: :string, desc: "Agent name", required: true
-    method_option :api_url, type: :string, desc: "SprintFlint API URL", default: "https://api.sprintflint.com"
-    method_option :token, type: :string, desc: "API token (or set SPRINTFLINT_TOKEN env var)"
+    desc 'register', 'Register this VPS with SprintFlint'
+    method_option :name, type: :string, desc: 'Agent name', required: true
+    method_option :api_url, type: :string, desc: 'SprintFlint API URL', default: 'https://api.sprintflint.com'
+    method_option :token, type: :string, desc: 'API token (or set SPRINTFLINT_TOKEN env var)'
     def register
-      token = options[:token] || ENV["SPRINTFLINT_TOKEN"]
-      abort "Error: API token required. Use --token or set SPRINTFLINT_TOKEN environment variable." unless token
+      token = options[:token] || ENV.fetch('SPRINTFLINT_TOKEN', nil)
+      abort 'Error: API token required. Use --token or set SPRINTFLINT_TOKEN environment variable.' unless token
 
       Config.set(:api_url, options[:api_url])
       Config.set(:token, token)
@@ -27,7 +27,7 @@ module VPSAgent
       puts "Registering agent '#{options[:name]}'..."
       puts "  Hostname: #{hostname}"
       puts "  API URL: #{options[:api_url]}"
-      
+
       response = API.register(
         name: options[:name],
         hostname: hostname,
@@ -36,9 +36,9 @@ module VPSAgent
 
       if response.success?
         data = response.parsed_response
-        Config.set(:agent_id, data["agent_id"])
-        Config.set(:ws_url, data["websocket_url"])
-        puts "✓ Registration successful!"
+        Config.set(:agent_id, data['agent_id'])
+        Config.set(:ws_url, data['websocket_url'])
+        puts '✓ Registration successful!'
         puts "  Agent ID: #{data['agent_id']}"
         puts "\nYou can now run: vps-agent start"
       else
@@ -46,32 +46,30 @@ module VPSAgent
         puts response.body
         exit 1
       end
-    rescue => e
+    rescue StandardError => e
       puts "✗ Error: #{e.message}"
       exit 1
     end
 
-    desc "start", "Start the VPS Agent (connects to SprintFlint)"
-    method_option :daemon, type: :boolean, desc: "Run as daemon", default: false
-    method_option :pidfile, type: :string, desc: "PID file path"
+    desc 'start', 'Start the VPS Agent (connects to SprintFlint)'
+    method_option :daemon, type: :boolean, desc: 'Run as daemon', default: false
+    method_option :pidfile, type: :string, desc: 'PID file path'
     def start
       agent_id = Config.get(:agent_id)
       token = Config.get(:token)
-      ws_url = Config.get(:ws_url) || "wss://api.sprintflint.com/ws"
+      ws_url = Config.get(:ws_url) || 'wss://api.sprintflint.com/ws'
 
       abort "Error: Agent not registered. Run 'vps-agent register' first." unless agent_id
       abort "Error: No API token configured. Run 'vps-agent register' again." unless token
 
-      if options[:daemon]
-        daemonize(options[:pidfile])
-      end
+      daemonize(options[:pidfile]) if options[:daemon]
 
       setup_signal_handlers
-      
-      puts "Starting VPS Agent..."
+
+      puts 'Starting VPS Agent...'
       puts "  Agent ID: #{agent_id}"
       puts "  WebSocket: #{ws_url}"
-      puts "  Press Ctrl+C to stop"
+      puts '  Press Ctrl+C to stop'
       puts
 
       Logger.info("VPS Agent starting - #{agent_id}")
@@ -84,75 +82,80 @@ module VPSAgent
       loop do
         sleep 1
         unless @ws_client.connected?
-          puts "Disconnected. Attempting reconnect..."
+          puts 'Disconnected. Attempting reconnect...'
           @ws_client.connect
         end
       end
     rescue Interrupt
       puts "\nShutting down..."
       shutdown
-    rescue => e
+    rescue StandardError => e
       Logger.error("Fatal error: #{e.message}")
       puts "Error: #{e.message}"
       exit 1
     end
 
-    desc "stop", "Stop the running VPS Agent daemon"
+    desc 'stop', 'Stop the running VPS Agent daemon'
     def stop
-      pidfile = options[:pidfile] || "/tmp/vps-agent.pid"
+      pidfile = options[:pidfile] || '/tmp/vps-agent.pid'
       unless File.exist?(pidfile)
-        puts "No PID file found. Is the agent running?"
+        puts 'No PID file found. Is the agent running?'
         exit 1
       end
 
       pid = File.read(pidfile).to_i
       puts "Stopping agent (PID: #{pid})..."
-      Process.kill("TERM", pid)
-      
+      Process.kill('TERM', pid)
+
       # Wait for process to exit
       10.times do
         break unless process_running?(pid)
+
         sleep 0.5
       end
 
       if process_running?(pid)
-        puts "Force killing..."
-        Process.kill("KILL", pid) rescue nil
+        puts 'Force killing...'
+        begin
+          Process.kill('KILL', pid)
+        rescue StandardError
+          nil
+        end
       end
 
       File.delete(pidfile)
-      puts "✓ Stopped"
+      puts '✓ Stopped'
     end
 
-    desc "status", "Check agent status"
+    desc 'status', 'Check agent status'
     def status
       agent_id = Config.get(:agent_id)
       api_url = Config.get(:api_url)
-      
-      puts "VPS Agent Configuration"
-      puts "=" * 40
+
+      puts 'VPS Agent Configuration'
+      puts '=' * 40
       puts "Agent ID: #{agent_id || 'Not registered'}"
       puts "API URL: #{api_url || 'Not configured'}"
       puts "Config file: #{CONFIG_FILE}"
       puts "Log file: #{LOG_FILE}"
-      
+
       # Check if running
-      pidfile = "/tmp/vps-agent.pid"
+      pidfile = '/tmp/vps-agent.pid'
       if File.exist?(pidfile)
         pid = File.read(pidfile).to_i
         if process_running?(pid)
           puts "Status: Running (PID: #{pid})"
         else
-          puts "Status: Stale PID file"
+          puts 'Status: Stale PID file'
         end
       else
-        puts "Status: Not running"
+        puts 'Status: Not running'
       end
     end
 
-    desc "logs", "Show agent logs"
-    method_option :follow, aliases: "-f", type: :boolean, desc: "Follow log output"
-    method_option :lines, aliases: "-n", type: :numeric, desc: "Number of lines to show", default: 50
+    desc 'logs', 'Show agent logs'
+    method_option :follow, aliases: '-f', type: :boolean, desc: 'Follow log output'
+    method_option :lines, aliases: '-n', type: :numeric, desc: 'Number of lines to show', default: 50
     def logs
       unless File.exist?(LOG_FILE)
         puts "No log file found at #{LOG_FILE}"
@@ -166,13 +169,13 @@ module VPSAgent
       end
     end
 
-    desc "unregister", "Unregister this agent and remove all local data"
+    desc 'unregister', 'Unregister this agent and remove all local data'
     def unregister
-      puts "This will remove all local configuration and logs."
-      print "Are you sure? [y/N] "
-      
-      unless STDIN.gets.strip.downcase == "y"
-        puts "Cancelled."
+      puts 'This will remove all local configuration and logs.'
+      print 'Are you sure? [y/N] '
+
+      unless STDIN.gets.strip.downcase == 'y'
+        puts 'Cancelled.'
         exit
       end
 
@@ -181,16 +184,16 @@ module VPSAgent
       if agent_id
         begin
           API.post("#{API.base_uri}/v1/agents/#{agent_id}/unregister", headers: API.headers)
-        rescue
+        rescue StandardError
           # Ignore server errors during unregister
         end
       end
 
       Config.clear
-      puts "✓ Unregistered and local data removed"
+      puts '✓ Unregistered and local data removed'
     end
 
-    desc "config", "Show current configuration"
+    desc 'config', 'Show current configuration'
     def config
       config = Config.load
       puts JSON.pretty_generate(config)
@@ -199,7 +202,7 @@ module VPSAgent
     private
 
     def generate_ssh_key
-      key_path = File.join(CONFIG_DIR, "id_rsa")
+      key_path = File.join(CONFIG_DIR, 'id_rsa')
       unless File.exist?(key_path)
         system("ssh-keygen -t rsa -b 4096 -f #{key_path} -N '' -C 'vps-agent@#{`hostname`.strip}' >/dev/null 2>&1")
       end
@@ -207,8 +210,8 @@ module VPSAgent
     end
 
     def daemonize(pidfile)
-      pidfile ||= "/tmp/vps-agent.pid"
-      
+      pidfile ||= '/tmp/vps-agent.pid'
+
       if File.exist?(pidfile) && process_running?(File.read(pidfile).to_i)
         abort "Agent is already running (PID: #{File.read(pidfile)})"
       end
@@ -217,14 +220,14 @@ module VPSAgent
       fork do
         Process.setsid
         fork do
-          Dir.chdir("/")
-          File.umask(0000)
-          
+          Dir.chdir('/')
+          File.umask(0o000)
+
           # Redirect stdout/stderr to log
-          STDIN.reopen("/dev/null")
-          STDOUT.reopen(LOG_FILE, "a")
+          STDIN.reopen(File::NULL)
+          STDOUT.reopen(LOG_FILE, 'a')
           STDERR.reopen(STDOUT)
-          
+
           File.write(pidfile, Process.pid)
         end
         exit
@@ -248,7 +251,7 @@ module VPSAgent
     def shutdown
       @heartbeat&.stop
       @ws_client&.close
-      Logger.info("VPS Agent stopped")
+      Logger.info('VPS Agent stopped')
       exit 0
     end
   end

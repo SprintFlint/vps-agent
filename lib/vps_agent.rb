@@ -1,27 +1,29 @@
 # frozen_string_literal: true
 
-require "thor"
-require "json"
-require "websocket-client-simple"
-require "httparty"
-require "logger"
-require "fileutils"
+require 'English'
+require 'thor'
+require 'json'
+require 'websocket-client-simple'
+require 'httparty'
+require 'logger'
+require 'fileutils'
 
 # VPS Agent CLI
 module VPSAgent
-  VERSION = "0.1.0"
-  CONFIG_DIR = File.expand_path("~/.vps-agent")
-  CONFIG_FILE = File.join(CONFIG_DIR, "config.json")
-  LOG_FILE = File.join(CONFIG_DIR, "agent.log")
+  VERSION = '0.1.0'
+  CONFIG_DIR = File.expand_path('~/.vps-agent')
+  CONFIG_FILE = File.join(CONFIG_DIR, 'config.json')
+  LOG_FILE = File.join(CONFIG_DIR, 'agent.log')
 
   class Config
     include HTTParty
-    
+
     def self.config_dir; VPSAgent::CONFIG_DIR; end
     def self.config_file; VPSAgent::CONFIG_FILE; end
-    
+
     def self.load
       return {} unless File.exist?(config_file)
+
       JSON.parse(File.read(config_file), symbolize_names: true)
     rescue JSON::ParserError
       {}
@@ -51,7 +53,7 @@ module VPSAgent
     def self.instance
       @instance ||= ::Logger.new(LOG_FILE).tap do |log|
         log.level = ::Logger::INFO
-        log.formatter = proc do |severity, datetime, progname, msg|
+        log.formatter = proc do |severity, datetime, _progname, msg|
           "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity}: #{msg}\n"
         end
       end
@@ -64,17 +66,18 @@ module VPSAgent
 
   class API
     include HTTParty
+
     format :json
-    
+
     def self.base_uri(uri = nil)
       @base_uri = uri if uri
-      @base_uri || Config.get(:api_url) || "https://api.sprintflint.com"
+      @base_uri || Config.get(:api_url) || 'https://api.sprintflint.com'
     end
 
     def self.headers
       {
-        "Content-Type" => "application/json",
-        "Authorization" => "Bearer #{Config.get(:token)}"
+        'Content-Type' => 'application/json',
+        'Authorization' => "Bearer #{Config.get(:token)}"
       }
     end
 
@@ -84,11 +87,11 @@ module VPSAgent
         hostname: hostname,
         public_key: public_key,
         os: RUBY_PLATFORM
-      }.to_json, headers: { "Content-Type" => "application/json" })
+      }.to_json, headers: { 'Content-Type' => 'application/json' })
     end
 
-    def self.heartbeat(agent_id:, status: "online", jobs: [])
-      post("#{base_uri}/v1/agents/#{agent_id}/heartbeat", 
+    def self.heartbeat(agent_id:, status: 'online', jobs: [])
+      post("#{base_uri}/v1/agents/#{agent_id}/heartbeat",
            body: { status: status, jobs: jobs, timestamp: Time.now.utc.iso8601 }.to_json,
            headers: headers)
     end
@@ -98,8 +101,8 @@ module VPSAgent
       body[:logs] = logs if logs
       body[:output] = output if output
       body[:exit_code] = exit_code unless exit_code.nil?
-      body[:completed_at] = Time.now.utc.iso8601 if status == "completed" || status == "failed"
-      
+      body[:completed_at] = Time.now.utc.iso8601 if %w[completed failed].include?(status)
+
       post("#{base_uri}/v1/jobs/#{job_id}/status", body: body.to_json, headers: headers)
     end
   end
@@ -116,17 +119,17 @@ module VPSAgent
 
     def connect
       Logger.info("Connecting to WebSocket: #{@url}")
-      
-      @ws = WebSocket::Client::Simple.connect(@url, headers: {
-        "Authorization" => "Bearer #{@token}",
-        "X-Agent-ID" => @agent_id
-      })
 
-      @ws.on :open do |e|
-        Logger.info("WebSocket connected")
+      @ws = WebSocket::Client::Simple.connect(@url, headers: {
+                                                'Authorization' => "Bearer #{@token}",
+                                                'X-Agent-ID' => @agent_id
+                                              })
+
+      @ws.on :open do |_e|
+        Logger.info('WebSocket connected')
         @connected = true
         @reconnect_delay = 5
-        send_message(type: "agent_connected", agent_id: @agent_id)
+        send_message(type: 'agent_connected', agent_id: @agent_id)
       end
 
       @ws.on :message do |msg|
@@ -152,11 +155,12 @@ module VPSAgent
 
     def send_message(data)
       return unless @ws && @connected
+
       @ws.send(data.to_json)
     end
 
     def send_log_chunk(job_id, chunk)
-      send_message(type: "log_chunk", job_id: job_id, chunk: chunk, timestamp: Time.now.utc.iso8601)
+      send_message(type: 'log_chunk', job_id: job_id, chunk: chunk, timestamp: Time.now.utc.iso8601)
     end
 
     def close
@@ -167,16 +171,16 @@ module VPSAgent
 
     def handle_message(msg)
       Logger.info("Received message: #{msg[:type]}")
-      
+
       case msg[:type]
-      when "execute_job"
+      when 'execute_job'
         JobRunner.new(msg[:job], self).run_async
-      when "ping"
-        send_message(type: "pong", timestamp: Time.now.utc.iso8601)
-      when "kill_job"
+      when 'ping'
+        send_message(type: 'pong', timestamp: Time.now.utc.iso8601)
+      when 'kill_job'
         JobRunner.kill(msg[:job_id])
       end
-    rescue => e
+    rescue StandardError => e
       Logger.error("Error handling message: #{e.message}")
     end
 
@@ -184,7 +188,7 @@ module VPSAgent
       Thread.new do
         sleep @reconnect_delay
         @reconnect_delay = [@reconnect_delay * 2, 60].min
-        Logger.info("Attempting reconnect...")
+        Logger.info('Attempting reconnect...')
         connect
       end
     end
@@ -207,36 +211,32 @@ module VPSAgent
 
     def run
       Logger.info("Starting job #{@job_id}: #{@job[:command]}")
-      API.update_job_status(@job_id, status: "running")
-      
+      API.update_job_status(@job_id, status: 'running')
+
       @@mutex.synchronize { @@running_jobs[@job_id] = self }
-      
+
       output = []
-      exit_code = nil
 
       begin
-        IO.popen(@job[:command] + " 2>&1", "r") do |io|
+        IO.popen("#{@job[:command]} 2>&1", 'r') do |io|
           @process = io
           io.each_line do |line|
             output << line
             @ws_client.send_log_chunk(@job_id, line)
-            
+
             # Also stream to API periodically
-            if output.length % 10 == 0
-              API.update_job_status(@job_id, status: "running", logs: output.last(50).join)
-            end
+            API.update_job_status(@job_id, status: 'running', logs: output.last(50).join) if (output.length % 10).zero?
           end
         end
 
-        exit_code = $?.exitstatus
-        status = exit_code == 0 ? "completed" : "failed"
-        
+        exit_code = $CHILD_STATUS.exitstatus
+        status = exit_code.zero? ? 'completed' : 'failed'
+
         Logger.info("Job #{@job_id} finished with exit code #{exit_code}")
         API.update_job_status(@job_id, status: status, output: output.join, exit_code: exit_code)
-        
-      rescue => e
+      rescue StandardError => e
         Logger.error("Job #{@job_id} failed: #{e.message}")
-        API.update_job_status(@job_id, status: "failed", output: output.join + "\nError: #{e.message}")
+        API.update_job_status(@job_id, status: 'failed', output: output.join + "\nError: #{e.message}")
       ensure
         @@mutex.synchronize { @@running_jobs.delete(@job_id) }
       end
@@ -244,10 +244,19 @@ module VPSAgent
 
     def kill
       return unless @process
+
       Logger.info("Killing job #{@job_id}")
-      Process.kill("TERM", @process.pid) rescue nil
+      begin
+        Process.kill('TERM', @process.pid)
+      rescue StandardError
+        nil
+      end
       sleep 2
-      Process.kill("KILL", @process.pid) rescue nil
+      begin
+        Process.kill('KILL', @process.pid)
+      rescue StandardError
+        nil
+      end
     end
 
     def self.kill(job_id)
@@ -273,13 +282,13 @@ module VPSAgent
     def start
       @running = true
       Logger.info("Starting heartbeat every #{@interval}s")
-      
+
       @thread = Thread.new do
         while @running
           begin
             send_heartbeat
             sleep @interval
-          rescue => e
+          rescue StandardError => e
             Logger.error("Heartbeat error: #{e.message}")
             sleep @interval
           end
@@ -296,7 +305,8 @@ module VPSAgent
 
     def send_heartbeat
       jobs = JobRunner.instance_variable_get(:@@running_jobs).keys
-      response = API.heartbeat(agent_id: @agent_id, status: @ws_client.connected? ? "online" : "disconnected", jobs: jobs)
+      response = API.heartbeat(agent_id: @agent_id, status: @ws_client.connected? ? 'online' : 'disconnected',
+                               jobs: jobs)
       Logger.debug("Heartbeat sent: #{response.code}")
     end
   end
