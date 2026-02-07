@@ -1,168 +1,166 @@
-# VPS Agent CLI
+# VPS Agent
 
-CLI tool that connects your VPS to SprintFlint for automated job execution.
+[![Gem Version](https://badge.fury.io/rb/vps-agent.svg)](https://badge.fury.io/rb/vps-agent)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+A CLI tool that connects your VPS (Virtual Private Server) to SprintFlint for automated job execution via WebSocket.
 
-- ✓ Registration with SprintFlint API
-- ✓ WebSocket connection for real-time communication
-- ✓ Job execution with log streaming
-- ✓ Heartbeat every 30 seconds
-- ✓ Automatic reconnection
-- ✓ Daemon mode support
-- ✓ Graceful shutdown
-- ✓ Docker support
-- ✓ One-line installer
+## Overview
+
+VPS Agent runs on your server and:
+- Registers your VPS with SprintFlint
+- Maintains a persistent WebSocket connection
+- Receives and executes AI-powered development jobs
+- Streams logs back in real-time
+- Reports status and health metrics
 
 ## Installation
 
-### One-Line Install (Recommended)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sprintflint/vps-agent/main/scripts/install.sh | bash
-```
-
-With options:
-```bash
-# Install specific version
-curl -fsSL ... | bash -s -- -v v1.0.0
-
-# Install with systemd service setup
-sudo curl -fsSL ... | bash -s -- --service
-```
-
-### Ruby Gem
+### From RubyGems
 
 ```bash
 gem install vps-agent
 ```
 
-### Docker
-
-```bash
-# Pull and run
-docker run -d \
-  --name vps-agent \
-  -e SPRINTFLINT_TOKEN=your_token \
-  -v vps-agent-data:/home/vps-agent/.vps-agent \
-  sprintflint/vps-agent:latest start
-```
-
 ### From Source
 
 ```bash
-# Clone the repository
-git clone https://github.com/sprintflint/vps-agent.git
+git clone https://github.com/neoflintai/vps-agent.git
 cd vps-agent
-
-# Install dependencies
 bundle install
-
-# Build and install
-gem build vps-agent.gemspec
-gem install vps-agent-*.gem
+bundle exec rake install
 ```
 
 ## Quick Start
 
+### 1. Get a SprintFlint API Token
+
+1. Log into your SprintFlint account
+2. Go to Settings → API Tokens
+3. Generate a new token with "Runner" permissions
+
+### 2. Register Your VPS
+
 ```bash
-# Register your VPS
-vps-agent register --name "my-vps" --token YOUR_API_TOKEN
+export SPRINTFLINT_TOKEN="your_api_token_here"
+vps-agent register --name "my-production-vps" --token $SPRINTFLINT_TOKEN
+```
 
-# Start the agent
+This will:
+- Create a runner record in SprintFlint
+- Generate SSH keys for secure communication
+- Save configuration to `~/.vps-agent/config.json`
+
+### 3. Start the Agent
+
+```bash
 vps-agent start
+```
 
-# Or run as daemon
-vps-agent start --daemon
+The agent will:
+- Connect to SprintFlint via WebSocket
+- Listen for job assignments
+- Execute jobs when assigned
+- Stream logs back in real-time
 
-# Check status
-vps-agent status
+### 4. Run as a Service (Production)
 
-# View logs
-vps-agent logs -f
+Create a systemd service file at `/etc/systemd/system/vps-agent.service`:
 
-# Stop the daemon
-vps-agent stop
+```ini
+[Unit]
+Description=SprintFlint VPS Agent
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+ExecStart=/usr/local/bin/vps-agent start
+Restart=always
+RestartSec=10
+Environment="SPRINTFLINT_TOKEN=your_token"
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable vps-agent
+sudo systemctl start vps-agent
 ```
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `register` | Register this VPS with SprintFlint |
-| `start` | Start the agent (connects to SprintFlint) |
-| `stop` | Stop the running agent daemon |
-| `status` | Check agent status |
-| `logs` | Show agent logs |
-| `config` | Show current configuration |
-| `unregister` | Remove registration and local data |
-| `version` | Show version information |
+### `vps-agent register`
 
-## Docker Usage
+Register this VPS with SprintFlint.
 
-### Using Docker Compose
-
-1. Create a `.env` file:
 ```bash
-SPRINTFLINT_TOKEN=your_api_token_here
+vps-agent register \
+  --name "production-web-01" \
+  --api-url "https://api.sprintflint.com" \
+  --token $SPRINTFLINT_TOKEN
 ```
 
-2. Start the agent:
+Options:
+- `--name` (required): Human-readable name for this runner
+- `--api-url`: SprintFlint API URL (default: https://api.sprintflint.com)
+- `--token`: API token (or set SPRINTFLINT_TOKEN env var)
+
+### `vps-agent start`
+
+Start the agent and connect to SprintFlint.
+
 ```bash
-docker-compose up -d
+vps-agent start
 ```
 
-3. Register (first time only):
+Options:
+- `--daemon`: Run as a background daemon
+- `--pidfile`: Path to PID file (default: /tmp/vps-agent.pid)
+
+### `vps-agent stop`
+
+Stop the running daemon.
+
 ```bash
-docker-compose exec vps-agent vps-agent register --name "docker-vps" --token $SPRINTFLINT_TOKEN
+vps-agent stop
 ```
 
-4. View logs:
+### `vps-agent status`
+
+Check agent status and configuration.
+
 ```bash
-docker-compose logs -f
+vps-agent status
 ```
 
-5. Stop:
+### `vps-agent logs`
+
+View agent logs.
+
 ```bash
-docker-compose down
+vps-agent logs          # Show last 50 lines
+vps-agent logs -f       # Follow log output
+vps-agent logs -n 100   # Show last 100 lines
 ```
 
-### Docker Run Commands
+### `vps-agent unregister`
+
+Remove this agent from SprintFlint and delete local data.
 
 ```bash
-# Register
-docker run --rm -it \
-  -v vps-agent-data:/home/vps-agent/.vps-agent \
-  sprintflint/vps-agent:latest \
-  register --name "my-vps" --token YOUR_TOKEN
-
-# Start daemon
-docker run -d \
-  --name vps-agent \
-  --restart unless-stopped \
-  -v vps-agent-data:/home/vps-agent/.vps-agent \
-  sprintflint/vps-agent:latest \
-  start
-
-# Check status
-docker exec vps-agent vps-agent status
-
-# View logs
-docker logs -f vps-agent
-
-# Stop
-docker stop vps-agent
-docker rm vps-agent
+vps-agent unregister
 ```
 
-### Building Docker Image Locally
+### `vps-agent config`
+
+Show current configuration.
 
 ```bash
-# Build
-docker build -t vps-agent:local .
-
-# Run
-docker run --rm vps-agent:local version
+vps-agent config
 ```
 
 ## Configuration
@@ -171,146 +169,137 @@ Configuration is stored in `~/.vps-agent/config.json`:
 
 ```json
 {
-  "agent_id": "agent_abc123",
+  "agent_id": 123,
   "api_url": "https://api.sprintflint.com",
-  "token": "your_api_token",
+  "token": "your_auth_token",
   "ws_url": "wss://api.sprintflint.com/ws"
 }
 ```
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SPRINTFLINT_TOKEN` | API token for authentication | Required |
-| `SPRINTFLINT_API_URL` | SprintFlint API URL | https://api.sprintflint.com |
+- `SPRINTFLINT_TOKEN`: API token for authentication
+- `VPS_AGENT_LOG_LEVEL`: Log level (debug, info, warn, error)
+- `VPS_AGENT_CONFIG_DIR`: Configuration directory (default: ~/.vps-agent)
 
-## Systemd Service
+## How It Works
 
-If you used the `--service` flag during installation, or want to manually set up systemd:
+### Architecture
+
+```
+┌─────────────┐      WebSocket       ┌─────────────────┐
+│  VPS Agent  │ ◄──────────────────► │   SprintFlint   │
+│   (Your     │                      │    (Server)     │
+│    Server)  │                      └─────────────────┘
+└──────┬──────┘                               │
+       │                                      │
+       │ HTTP API                             │ Job Assignment
+       │                                      ▼
+       └───────────────────────────────► ┌──────────┐
+                                         │  Runner  │
+                                         │  Queue   │
+                                         └──────────┘
+```
+
+### Job Execution Flow
+
+1. **Registration**: Agent registers with SprintFlint and gets a unique ID
+2. **WebSocket Connect**: Opens persistent connection for real-time communication
+3. **Heartbeat**: Sends heartbeat every 30 seconds to maintain connection
+4. **Job Assignment**: Server assigns jobs via WebSocket message
+5. **Execution**: Agent executes the job (typically runs autoplay)
+6. **Streaming**: Logs are streamed back in real-time
+7. **Completion**: Job result is sent back to server
+
+### Security
+
+- All communication uses TLS encryption
+- Runner authentication via unique token
+- SSH key generation for secure git operations
+- No sensitive data stored in logs
+
+## Troubleshooting
+
+### Connection Issues
 
 ```bash
-# Start service
-sudo systemctl start vps-agent
+# Check if agent can reach SprintFlint
+curl https://api.sprintflint.com/health
 
-# Enable at boot
-sudo systemctl enable vps-agent
-
-# Check status
-sudo systemctl status vps-agent
-
-# View logs
-sudo journalctl -u vps-agent -f
+# Check WebSocket connection
+vps-agent status
 ```
 
-## Architecture
+### Registration Fails
 
-```
-┌─────────────┐      HTTP      ┌─────────────────┐
-│  vps-agent  │ ──────────────▶│  SprintFlint    │
-│   register  │                │     API         │
-└─────────────┘                └─────────────────┘
-                                     │
-                                     │ WebSocket
-                                     ▼
-                              ┌─────────────────┐
-                              │   Agent Pool    │
-                              │   (connected)   │
-                              └─────────────────┘
-                                     │
-                              ┌──────┴──────┐
-                              ▼             ▼
-                         ┌────────┐    ┌────────┐
-                         │ Job 1  │    │ Job 2  │
-                         │ stdout │    │ stdout │
-                         │ stderr │    │ stderr │
-                         └────┬───┘    └────┬───┘
-                              │             │
-                              └──────┬──────┘
-                                     ▼
-                              Stream logs back
-                              to SprintFlint
+- Verify your API token is valid
+- Check that your account has runner permissions
+- Ensure the organization_id is correct
+
+### Jobs Not Being Assigned
+
+- Check agent status: `vps-agent status`
+- Verify agent is online in SprintFlint dashboard
+- Check logs: `vps-agent logs -f`
+- Ensure runner is not marked as "busy"
+
+### Daemon Won't Start
+
+```bash
+# Check for existing process
+ps aux | grep vps-agent
+
+# Kill stale process
+vps-agent stop
+
+# Or manually
+sudo pkill -f vps-agent
+
+# Start fresh
+vps-agent start --daemon
 ```
 
 ## Development
 
+### Setup
+
 ```bash
-# Setup
+git clone https://github.com/neoflintai/vps-agent.git
+cd vps-agent
 bundle install
+```
 
-# Run tests
+### Running Tests
+
+```bash
 bundle exec rspec
-
-# Run linter
-bundle exec rubocop
-
-# Fix linting
-bundle exec rubocop -A
-
-# Run in dev mode
-bundle exec ruby -I lib bin/vps-agent version
-
-# Interactive console
-bundle exec ruby -I lib -r vps_agent -r irb -e "IRB.start"
 ```
 
-### Makefile Targets
+### Building Gem
 
 ```bash
-make help          # Show all targets
-make install       # Install dependencies
-make test          # Run tests
-make lint          # Run linter
-make build         # Build gem
-make release       # Create a release (VERSION=x.y.z)
-make docker-build  # Build Docker image
-make docker-run    # Run in Docker
+gem build vps-agent.gemspec
 ```
 
-## Releases
+## Contributing
 
-This project uses GitHub Actions to automatically build and release:
-
-- **Ruby Gem**: Published to RubyGems
-- **Binary Packages**: Built for Linux (x86_64, ARM64, ARM) and macOS (x86_64, ARM64)
-- **Docker Images**: Published to Docker Hub
-- **Install Script**: One-line installer available
-
-To create a release:
-
-```bash
-# Method 1: Using make
-make release VERSION=0.2.0
-make push-release VERSION=0.2.0
-
-# Method 2: Manual
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
-```
-
-## Troubleshooting
-
-### Agent won't start
-- Check if registered: `vps-agent status`
-- Verify token: `vps-agent config`
-- Check logs: `vps-agent logs -n 100`
-
-### Connection issues
-- Verify network connectivity to api.sprintflint.com
-- Check firewall rules for WebSocket (port 443)
-- Try restarting: `vps-agent stop && vps-agent start`
-
-### Permission denied
-- Ensure `~/.vps-agent` directory is writable
-- Run with appropriate user permissions
-- For systemd, check service user
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -am 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- Documentation: https://docs.sprintflint.com
-- Issues: https://github.com/sprintflint/vps-agent/issues
+- Documentation: https://docs.sprintflint.com/vps-agent
+- Issues: https://github.com/neoflintai/vps-agent/issues
 - Email: support@sprintflint.com
+
+## Related Projects
+
+- [SprintFlint](https://sprintflint.com) - AI-powered sprint management
+- [SprintFlint Rails](https://github.com/ancez/sprintflint-rails) - Main application
