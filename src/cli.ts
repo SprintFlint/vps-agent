@@ -1,23 +1,27 @@
 /**
- * SF-122 (A1): CLI entrypoint.
+ * SF-122 (A1) + Epic B (SF-128..SF-134): CLI entrypoint.
  *
- * Wires up commander with the runner subcommands. Most are STUBS at this stage;
- * downstream waves fill in register/start/stop/status with real behavior. The
- * config, logs, and version commands are functional now.
+ * Wires up commander with the runner subcommands. cli.ts owns all commands and
+ * stays cohesive: each action delegates to a focused src/ module
+ * (register.ts, runtime.ts, daemon.ts) for the real logic.
  */
 
+import { spawn } from 'node:child_process';
+import { openSync } from 'node:fs';
+import { join } from 'node:path';
 import { Command } from 'commander';
 import { loadConfig, saveConfig, configPath } from './config.js';
 import { Logger, tailLog } from './logger.js';
 import { VERSION } from './version.js';
-
-const NOT_IMPLEMENTED = (name: string): void => {
-  process.stderr.write(
-    `vps-agent ${name}: not implemented yet (foundation scaffold). ` +
-      `This lands in a later wave.\n`,
-  );
-  process.exitCode = 0;
-};
+import { register as runRegister } from './register.js';
+import { Runtime } from './runtime.js';
+import {
+  defaultPidfile,
+  inspectRunning,
+  removePidfile,
+  signalRunning,
+  writePidfile,
+} from './daemon.js';
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -29,28 +33,146 @@ export function buildProgram(): Command {
 
   program
     .command('register')
-    .description('Register this VPS with SprintFlint (stub)')
-    .option('--name <name>', 'human-readable runner name')
-    .option('--organization-id <id>', 'SprintFlint organization id')
+    .description('Register this VPS with SprintFlint')
+    .option('--name <name>', 'human-readable runner name (with --org-id)')
+    .option('--org-id <id>', 'SprintFlint organization id (with --name)')
+    .option('--organization-id <id>', 'alias for --org-id')
     .option('--api-url <url>', 'override the SprintFlint base URL')
-    .option('--token <token>', 'runner token (usually set after registration)')
-    .action(() => NOT_IMPLEMENTED('register'));
+    .option('--token <token>', 'use a runner token created in the web UI')
+    .action(
+      async (opts: {
+        name?: string;
+        orgId?: string;
+        organizationId?: string;
+        apiUrl?: string;
+        token?: string;
+      }) => {
+        const config = loadConfig({
+          overrides: opts.apiUrl ? { api_url: opts.apiUrl } : {},
+        });
+        const logger = new Logger({ dir: config.config_dir, level: config.log_level, console: false });
+        try {
+          const result = await runRegister(
+            {
+              orgId: opts.orgId ?? opts.organizationId,
+              name: opts.name,
+              token: opts.token,
+              apiUrl: opts.apiUrl,
+            },
+            config,
+            { logger },
+          );
+          if (result.mode === 'register') {
+            process.stdout.write(
+              `Registered runner #${result.runnerId} with ${result.apiUrl}.\n` +
+                `Token saved to ${configPath(config.config_dir)}.\n` +
+                `It should now appear in your SprintFlint dashboard. Run \`vps-agent start\`.\n`,
+            );
+          } else {
+            process.stdout.write(
+              `Saved runner token for ${result.apiUrl} to ${configPath(config.config_dir)}.\n` +
+                `Run \`vps-agent start\` to connect.\n`,
+            );
+          }
+        } catch (err) {
+          process.stderr.write(`register failed: ${err instanceof Error ? err.message : String(err)}\n`);
+          process.exitCode = 1;
+        }
+      },
+    );
 
   program
     .command('start')
-    .description('Start the agent: heartbeat + poll for jobs (stub)')
+    .description('Start the agent: heartbeat + poll for jobs')
     .option('--daemon', 'run detached in the background')
-    .action(() => NOT_IMPLEMENTED('start'));
+    .option('--pidfile <path>', 'pidfile location (defaults to <config_dir>/agent.pid)')
+    .action(async (opts: { daemon?: boolean; pidfile?: string }) => {
+      const config = loadConfig();
+      const pidfile = opts.pidfile ?? defaultPidfile(config.config_dir);
+
+      if (!config.token) {
+        process.stderr.write('No runner token configured. Run `vps-agent register` first.\n');
+        process.exitCode = 1;
+        return;
+      }
+
+      const existing = inspectRunning(pidfile);
+      if (existing.running) {
+        process.stderr.write(`Agent already running (pid ${existing.pid}).\n`);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (opts.daemon) {
+        // Re-exec ourselves detached, without --daemon, redirecting output to the log.
+        const logFile = join(config.config_dir, 'daemon.out.log');
+        const out = openSync(logFile, 'a');
+        const args = ['start', '--pidfile', pidfile];
+        const child = spawn(process.execPath, [process.argv[1] as string, ...args], {
+          detached: true,
+          stdio: ['ignore', out, out],
+        });
+        child.unref();
+        process.stdout.write(`Agent started in background (pid ${child.pid}). Logs: ${logFile}\n`);
+        return;
+      }
+
+      // Foreground: own the pidfile for our lifetime.
+      writePidfile(pidfile);
+      const runtime = new Runtime({ config });
+      const cleanup = (): void => removePidfile(pidfile);
+      try {
+        await runtime.start();
+      } finally {
+        cleanup();
+      }
+    });
 
   program
     .command('stop')
-    .description('Stop the running agent (stub)')
-    .action(() => NOT_IMPLEMENTED('stop'));
+    .description('Stop the running agent (via pidfile)')
+    .option('--pidfile <path>', 'pidfile location (defaults to <config_dir>/agent.pid)')
+    .action((opts: { pidfile?: string }) => {
+      const config = loadConfig();
+      const pidfile = opts.pidfile ?? defaultPidfile(config.config_dir);
+      const info = inspectRunning(pidfile);
+      if (!info.running) {
+        process.stdout.write('No running agent found.\n');
+        return;
+      }
+      const pid = signalRunning(pidfile, 'SIGTERM');
+      if (pid !== null) {
+        process.stdout.write(`Sent SIGTERM to agent (pid ${pid}).\n`);
+      } else {
+        process.stderr.write('Failed to signal the running agent.\n');
+        process.exitCode = 1;
+      }
+    });
 
   program
     .command('status')
-    .description('Show agent status (stub)')
-    .action(() => NOT_IMPLEMENTED('status'));
+    .description('Show agent status (config + whether running)')
+    .option('--pidfile <path>', 'pidfile location (defaults to <config_dir>/agent.pid)')
+    .action((opts: { pidfile?: string }) => {
+      const config = loadConfig();
+      const pidfile = opts.pidfile ?? defaultPidfile(config.config_dir);
+      const info = inspectRunning(pidfile);
+      const summary = {
+        running: info.running,
+        pid: info.pid,
+        registered: Boolean(config.token),
+        runner_id: config.runner_id,
+        api_url: config.api_url,
+        harness: config.harness,
+        permission_mode: config.permission_mode,
+        heartbeat_interval: config.heartbeat_interval,
+        poll_interval: config.poll_interval,
+        log_level: config.log_level,
+        config_file: configPath(config.config_dir),
+        pidfile,
+      };
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    });
 
   program
     .command('logs')
@@ -73,8 +195,25 @@ export function buildProgram(): Command {
 
   program
     .command('unregister')
-    .description('Unregister this VPS from SprintFlint (stub)')
-    .action(() => NOT_IMPLEMENTED('unregister'));
+    .description('Clear local registration (local-only; no server endpoint)')
+    .option('--pidfile <path>', 'pidfile location (defaults to <config_dir>/agent.pid)')
+    .action((opts: { pidfile?: string }) => {
+      const config = loadConfig();
+      const pidfile = opts.pidfile ?? defaultPidfile(config.config_dir);
+      // Best-effort: stop a running agent first so it stops heartbeating.
+      const info = inspectRunning(pidfile);
+      if (info.running) {
+        signalRunning(pidfile, 'SIGTERM');
+        process.stdout.write(`Signalled running agent (pid ${info.pid}) to stop.\n`);
+      }
+      // Local-only: the runner-token API has no unregister endpoint.
+      saveConfig({ token: null, runner_id: null }, config.config_dir);
+      removePidfile(pidfile);
+      process.stdout.write(
+        `Cleared local token + runner_id from ${configPath(config.config_dir)}.\n` +
+          `Note: this is local-only; remove the runner in the dashboard to fully revoke it.\n`,
+      );
+    });
 
   const config = program.command('config').description('View or set local configuration');
 
@@ -90,16 +229,32 @@ export function buildProgram(): Command {
 
   config
     .command('set <key> <value>')
-    .description('Set a config key (api_url, token, log_level, harness, permission_mode)')
+    .description(
+      'Set a config key (api_url, token, log_level, harness, permission_mode, ' +
+        'heartbeat_interval, poll_interval, max_log_batch_size)',
+    )
     .action((key: string, value: string) => {
-      const allowed = ['api_url', 'token', 'log_level', 'harness', 'permission_mode'];
-      if (!allowed.includes(key)) {
-        process.stderr.write(`Unknown config key "${key}". Allowed: ${allowed.join(', ')}\n`);
+      const stringKeys = ['api_url', 'token', 'log_level', 'harness', 'permission_mode'];
+      const numericKeys = ['heartbeat_interval', 'poll_interval', 'max_log_batch_size', 'runner_id'];
+      if (![...stringKeys, ...numericKeys].includes(key)) {
+        process.stderr.write(
+          `Unknown config key "${key}". Allowed: ${[...stringKeys, ...numericKeys].join(', ')}\n`,
+        );
         process.exitCode = 1;
         return;
       }
       const cfg = loadConfig();
-      saveConfig({ [key]: value }, cfg.config_dir);
+      let coerced: string | number = value;
+      if (numericKeys.includes(key)) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          process.stderr.write(`Value for "${key}" must be a number.\n`);
+          process.exitCode = 1;
+          return;
+        }
+        coerced = n;
+      }
+      saveConfig({ [key]: coerced }, cfg.config_dir);
       process.stdout.write(`Set ${key} in ${configPath(cfg.config_dir)}\n`);
     });
 
@@ -107,7 +262,7 @@ export function buildProgram(): Command {
     .command('version')
     .description('Show version information')
     .action(() => {
-      process.stdout.write(`vps-agent ${VERSION}\n`);
+      process.stdout.write(`vps-agent ${VERSION} (node ${process.version}, ${process.platform})\n`);
     });
 
   return program;
