@@ -4,19 +4,18 @@
  *
  * Checks:
  *   - git installed (+ a minimum version),
- *   - gh installed and authenticated (skipped/relaxed when git_auth = 'token',
- *     since the token is provided per-job),
+ *   - gh installed and authenticated (the agent uses the host's ambient gh
+ *     credentials, so an authenticated `gh auth login` is always required),
  *   - claude installed (only required when the configured harness is 'claude').
  *
  * Tool detection is injectable so tests don't touch the real binaries.
  */
 
 import type { ExecFn } from './git-ops.js';
-import type { GitAuthMode, HarnessName } from './types.js';
+import type { HarnessName } from './types.js';
 
 export interface PreflightInput {
   harness: HarnessName;
-  gitAuth: GitAuthMode;
   exec: ExecFn;
   /** Minimum git version (major.minor). Default 2.20. */
   minGit?: { major: number; minor: number };
@@ -91,19 +90,13 @@ async function checkGh(input: PreflightInput): Promise<CheckResult> {
   }
   const versionLine = present.out.trim().split('\n')[0] ?? 'gh';
 
-  // In token mode the per-job GH_TOKEN provides auth; an ambient login is not
-  // required, so we only verify presence.
-  if (input.gitAuth === 'token') {
-    return { name: 'gh', ok: true, required: true, detail: `${versionLine} (token auth; per-job GH_TOKEN)` };
-  }
-
   const auth = await tryExec(input.exec, 'gh', ['auth', 'status']);
   if (!auth.ok) {
     return {
       name: 'gh',
       ok: false,
       required: true,
-      detail: 'gh is installed but not authenticated. Run `gh auth login` (or set git_auth=token).',
+      detail: 'gh is installed but not authenticated. Run `gh auth login`.',
     };
   }
   return { name: 'gh', ok: true, required: true, detail: `${versionLine} (authenticated)` };

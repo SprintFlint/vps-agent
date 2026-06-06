@@ -12,7 +12,7 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import type { GitAuthMode, HarnessName, LogLevel, PermissionMode } from './types.js';
+import type { HarnessName, LogLevel, PermissionMode } from './types.js';
 
 /** Fully-resolved runtime configuration. */
 export interface AgentConfig {
@@ -21,8 +21,6 @@ export interface AgentConfig {
   log_level: LogLevel;
   harness: HarnessName;
   permission_mode: PermissionMode;
-  /** SF-140: how git/gh authenticate for push + PR. */
-  git_auth: GitAuthMode;
   config_dir: string;
   /** Numeric id of this runner, returned by register. Null until registered. */
   runner_id: number | null;
@@ -57,7 +55,6 @@ const ENV_KEYS = {
   log_level: 'VPS_AGENT_LOG_LEVEL',
   harness: 'VPS_AGENT_HARNESS',
   permission_mode: 'VPS_AGENT_PERMISSION_MODE',
-  git_auth: 'VPS_AGENT_GIT_AUTH',
   config_dir: 'VPS_AGENT_CONFIG_DIR',
   runner_id: 'VPS_AGENT_RUNNER_ID',
   heartbeat_interval: 'VPS_AGENT_HEARTBEAT_INTERVAL',
@@ -72,7 +69,6 @@ function defaults(): AgentConfig {
     log_level: 'info',
     harness: 'noop',
     permission_mode: 'default',
-    git_auth: 'machine',
     config_dir: DEFAULT_CONFIG_DIR,
     runner_id: null,
     heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
@@ -206,9 +202,6 @@ export function loadConfig(options: LoadOptions = {}): AgentConfig {
 
   const permissionMode = fromEnvLayers('permission_mode');
   if (permissionMode) base.permission_mode = permissionMode;
-
-  const gitAuth = fromEnvLayers('git_auth');
-  if (gitAuth === 'machine' || gitAuth === 'token') base.git_auth = gitAuth;
 
   for (const key of NUMERIC_KEYS) {
     const n = coerceNumber(fromEnvLayers(key));

@@ -14,8 +14,9 @@ outbound requests.
 
 - **Node.js >= 18** and npm.
 - **git** (>= 2.20).
-- **GitHub CLI (`gh`)**, authenticated (`gh auth login`) when using machine
-  git auth.
+- **GitHub CLI (`gh`)**, authenticated with `gh auth login` **before** starting
+  the agent. The agent clones, pushes, and opens PRs using this machine's
+  ambient git + `gh` credentials; it never handles GitHub tokens itself.
 - **Claude Code (`claude`)**, authenticated once, when running the `claude`
   harness.
 
@@ -113,7 +114,6 @@ owner-only (`0700`) directory.
 | `token`              | `VPS_AGENT_TOKEN`              | _(none)_                  | Runner token, sent as `X-Runner-Token`.              |
 | `harness`            | `VPS_AGENT_HARNESS`            | `noop`                    | Job harness: `noop` or `claude`.                     |
 | `permission_mode`    | `VPS_AGENT_PERMISSION_MODE`    | `default`                 | Permission mode for the harness (see below).         |
-| `git_auth`           | `VPS_AGENT_GIT_AUTH`           | `machine`                 | How git/gh authenticate: `machine` or `token`.       |
 | `heartbeat_interval` | `VPS_AGENT_HEARTBEAT_INTERVAL` | `30`                      | Seconds between heartbeats (server may shorten).     |
 | `poll_interval`      | `VPS_AGENT_POLL_INTERVAL`      | `5`                       | Seconds between idle `next_job` polls.               |
 | `max_log_batch_size` | `VPS_AGENT_MAX_LOG_BATCH_SIZE` | `100`                     | Max log lines per `append_log` call.                 |
@@ -134,12 +134,12 @@ vps-agent config set permission_mode acceptEdits
 - `plan` — plan only.
 - `bypassPermissions` — full autonomy (explicit opt-in).
 
-### Git auth modes
+### Git authentication
 
-- `machine` — use the host's ambient `gh auth` session and git credentials.
-- `token` — use a per-job token injected by the server: woven into a one-shot
-  HTTPS push remote for git, and exported as `GH_TOKEN` for `gh`. The token is
-  never written to disk and never logged.
+The agent always uses **this machine's ambient git + `gh` credentials**. Run
+`gh auth login` before starting the agent; the `gh` CLI then handles clone,
+push, and PR creation. The agent neither handles nor injects any GitHub token,
+so there is no token-handling surface to secure.
 
 ## Job flow
 
@@ -169,14 +169,13 @@ the error and back off exponentially, then resume.
   arguments and **no shell**. It does not execute any command string supplied by
   the server. Job payload fields (branch names, repo URLs, prompts) are passed
   as discrete arguments, never interpolated into a shell.
-- **Secret redaction.** Tokens (the runner token, per-job git token, and
-  provider keys such as `ghp_…` / `sk-ant-…`) are scrubbed from both the local
-  agent log and the server-streamed job log. Tokenized git remote URLs are
-  redacted before logging.
+- **Secret redaction.** Tokens (the runner token and provider keys such as
+  `ghp_…` / `sk-ant-…`) are scrubbed from both the local agent log and the
+  server-streamed job log.
 - **Least-privilege files.** The config/token file is `0600` inside a `0700`
   directory; permissions are re-tightened on every write.
-- **Per-job credentials are ephemeral.** In `token` git-auth mode the credential
-  is used for one push / PR and never persisted.
+- **No GitHub tokens in the agent.** Git/`gh` operations use the host's ambient
+  credentials only; the agent never receives, stores, or injects a GitHub token.
 
 ## Logs and state
 
@@ -191,16 +190,16 @@ Everything lives under `config_dir` (default `~/.vps-agent`):
 ## Troubleshooting
 
 - **`No runner token configured`** — run `vps-agent register` first.
-- **`doctor` fails on `gh`** — run `gh auth login`, or switch to `git_auth=token`
-  if the server injects per-job credentials.
+- **`doctor` fails on `gh`** — run `gh auth login` so the host has an
+  authenticated `gh` session.
 - **`doctor` fails on `claude`** — install Claude Code and run `claude` once to
   authenticate; only required when `harness=claude`.
 - **`Agent already running`** — a live pidfile exists. Use `vps-agent stop`, or
   pass a different `--pidfile`.
 - **Nothing happens after `start`** — check `vps-agent logs -f`; confirm
   `api_url` and the token are correct via `vps-agent config show`.
-- **Private repo clone fails** — ensure the host's git credentials can reach it
-  (`machine` mode), or that the server is injecting a `git_token` (`token` mode).
+- **Private repo clone fails** — ensure the host's git/`gh` credentials can
+  reach it (run `gh auth login` and confirm with `gh auth status`).
 
 ## Development
 

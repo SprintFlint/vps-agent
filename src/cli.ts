@@ -116,7 +116,6 @@ export function buildProgram(): Command {
       // SF-142: fail fast if a prerequisite tool is missing/unauthed.
       const report = await preflight({
         harness: config.harness,
-        gitAuth: config.git_auth,
         exec: defaultExec,
       });
       if (!report.ok) {
@@ -190,7 +189,6 @@ export function buildProgram(): Command {
         api_url: config.api_url,
         harness: config.harness,
         permission_mode: config.permission_mode,
-        git_auth: config.git_auth,
         heartbeat_interval: config.heartbeat_interval,
         poll_interval: config.poll_interval,
         log_level: config.log_level,
@@ -256,7 +254,7 @@ export function buildProgram(): Command {
   config
     .command('set <key> <value>')
     .description(
-      'Set a config key (api_url, token, log_level, harness, permission_mode, git_auth, ' +
+      'Set a config key (api_url, token, log_level, harness, permission_mode, ' +
         'heartbeat_interval, poll_interval, max_log_batch_size)',
     )
     .action((key: string, value: string) => {
@@ -266,7 +264,6 @@ export function buildProgram(): Command {
         'log_level',
         'harness',
         'permission_mode',
-        'git_auth',
       ];
       const numericKeys = [
         'heartbeat_interval',
@@ -278,11 +275,6 @@ export function buildProgram(): Command {
         process.stderr.write(
           `Unknown config key "${key}". Allowed: ${[...stringKeys, ...numericKeys].join(', ')}\n`,
         );
-        process.exitCode = 1;
-        return;
-      }
-      if (key === 'git_auth' && value !== 'machine' && value !== 'token') {
-        process.stderr.write('git_auth must be "machine" or "token".\n');
         process.exitCode = 1;
         return;
       }
@@ -308,7 +300,6 @@ export function buildProgram(): Command {
       const config = loadConfig();
       const report = await preflight({
         harness: config.harness,
-        gitAuth: config.git_auth,
         exec: defaultExec,
       });
       process.stdout.write(`${formatReport(report)}\n`);

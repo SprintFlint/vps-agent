@@ -1,18 +1,12 @@
 /**
- * SF-139 (open PR) + SF-140 (pluggable git-auth, PR side).
+ * SF-139 (open PR).
  *
- * Opens a pull request with `gh pr create` and returns the PR URL. It NEVER
- * merges. Command execution is injectable so tests don't invoke real `gh`.
- *
- * Auth modes (SF-140):
- *   - 'machine': rely on the VPS's ambient `gh auth` session.
- *   - 'token':   pass the server-injected token to gh via the GH_TOKEN env var
- *                (gh's documented non-interactive auth). The token is never
- *                logged.
+ * Opens a pull request with `gh pr create` and returns the PR URL, relying on
+ * the host's ambient `gh auth` session. It NEVER merges. Command execution is
+ * injectable so tests don't invoke real `gh`.
  */
 
 import type { ExecFn } from './git-ops.js';
-import type { GitAuthMode } from './types.js';
 import type { IssueContext } from './harness.js';
 
 export interface OpenPrOptions {
@@ -23,9 +17,6 @@ export interface OpenPrOptions {
   base?: string | null;
   title: string;
   body: string;
-  gitAuth?: GitAuthMode;
-  /** Server-injected token (token mode only). Never logged. */
-  gitToken?: string;
   exec: ExecFn;
   log?: (message: string, level?: 'info' | 'warn' | 'error' | 'debug') => void;
 }
@@ -64,16 +55,8 @@ export async function openPullRequest(opts: OpenPrOptions): Promise<string> {
     args.push('--base', opts.base);
   }
 
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if ((opts.gitAuth ?? 'machine') === 'token') {
-    if (!opts.gitToken) throw new Error('git_auth=token but no git token was provided in the job payload');
-    env.GH_TOKEN = opts.gitToken;
-    // Avoid gh picking up a conflicting interactive session.
-    delete env.GITHUB_TOKEN;
-  }
-
   opts.log?.(`Opening PR for ${opts.branch}${opts.base ? ` -> ${opts.base}` : ''}`);
-  const res = await opts.exec('gh', args, { cwd: opts.workdir, env });
+  const res = await opts.exec('gh', args, { cwd: opts.workdir });
   if (res.exitCode !== 0) {
     throw new Error(`gh pr create failed (exit ${res.exitCode ?? 'signal'}): ${res.stderr.trim() || res.stdout.trim()}`);
   }

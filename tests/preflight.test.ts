@@ -31,7 +31,7 @@ describe('preflight', () => {
       'gh auth': ok('Logged in to github.com'),
       'claude --version': fail(),
     });
-    const report = await preflight({ harness: 'noop', gitAuth: 'machine', exec });
+    const report = await preflight({ harness: 'noop', exec });
     expect(report.ok).toBe(true);
     expect(report.checks.find((c) => c.name === 'claude')?.ok).toBe(true); // not required
   });
@@ -42,7 +42,7 @@ describe('preflight', () => {
       'gh --version': ok('gh version 2.40.0'),
       'gh auth': ok('ok'),
     });
-    const report = await preflight({ harness: 'noop', gitAuth: 'machine', exec });
+    const report = await preflight({ harness: 'noop', exec });
     expect(report.ok).toBe(false);
     expect(report.checks.find((c) => c.name === 'git')?.detail).toMatch(/Install git/);
   });
@@ -53,30 +53,20 @@ describe('preflight', () => {
       'gh --version': ok('gh version 2.40.0'),
       'gh auth': ok('ok'),
     });
-    const report = await preflight({ harness: 'noop', gitAuth: 'machine', exec });
+    const report = await preflight({ harness: 'noop', exec });
     expect(report.ok).toBe(false);
     expect(report.checks.find((c) => c.name === 'git')?.detail).toMatch(/too old/);
   });
 
-  it('fails when gh is unauthenticated in machine mode', async () => {
+  it('fails when gh is unauthenticated', async () => {
     const exec = execFor({
       'git --version': ok('git version 2.39.0'),
       'gh --version': ok('gh version 2.40.0'),
       'gh auth': fail('not logged in'),
     });
-    const report = await preflight({ harness: 'noop', gitAuth: 'machine', exec });
+    const report = await preflight({ harness: 'noop', exec });
     expect(report.ok).toBe(false);
     expect(report.checks.find((c) => c.name === 'gh')?.detail).toMatch(/auth login/);
-  });
-
-  it('does not require gh auth in token mode (per-job token)', async () => {
-    const exec = execFor({
-      'git --version': ok('git version 2.39.0'),
-      'gh --version': ok('gh version 2.40.0'),
-      // gh auth intentionally absent / would fail
-    });
-    const report = await preflight({ harness: 'noop', gitAuth: 'token', exec });
-    expect(report.checks.find((c) => c.name === 'gh')?.ok).toBe(true);
   });
 
   it('requires claude when harness=claude', async () => {
@@ -86,7 +76,7 @@ describe('preflight', () => {
       'gh auth': ok('ok'),
       'claude --version': fail(),
     });
-    const report = await preflight({ harness: 'claude', gitAuth: 'machine', exec });
+    const report = await preflight({ harness: 'claude', exec });
     expect(report.ok).toBe(false);
     expect(report.checks.find((c) => c.name === 'claude')?.required).toBe(true);
   });

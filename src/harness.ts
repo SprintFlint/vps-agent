@@ -33,12 +33,6 @@ export interface IssueContext {
 
   /** Permission mode for this run, resolved from config. */
   permissionMode?: PermissionMode;
-
-  /**
-   * SF-140: server-injected git token, only present when git_auth = 'token'.
-   * Threaded to git push + gh PR creation; never logged.
-   */
-  gitToken?: string;
 }
 
 /** Outcome of a harness run. */
@@ -89,7 +83,6 @@ export function issueContextFromPayload(
     ...(payload.default_branch !== undefined ? { defaultBranch: payload.default_branch } : {}),
     ...(payload.clone_url !== undefined ? { cloneUrl: payload.clone_url } : {}),
     ...(payload.tags !== undefined ? { tags: payload.tags } : {}),
-    ...(payload.git_token !== undefined ? { gitToken: payload.git_token } : {}),
     ...(permissionMode !== undefined ? { permissionMode } : {}),
   };
 }

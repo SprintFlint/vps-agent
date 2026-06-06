@@ -96,12 +96,6 @@ describe('config set', () => {
     expect(err).toContain('must be a number');
     expect(process.exitCode).toBe(1);
   });
-
-  it('rejects an invalid git_auth value', async () => {
-    await run('config', 'set', 'git_auth', 'wat');
-    expect(err).toContain('git_auth must be');
-    expect(process.exitCode).toBe(1);
-  });
 });
 
 describe('register error path', () => {

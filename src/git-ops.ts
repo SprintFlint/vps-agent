@@ -1,18 +1,11 @@
 /**
- * SF-138 (git ops) + SF-140 (pluggable git-auth, push side).
+ * SF-138 (git ops).
  *
  * Detects working-tree changes, commits them with an issue-ref message, and
- * pushes the branch. The actual command execution is injectable so unit tests
- * never shell out to a real `git`.
- *
- * Auth modes (SF-140):
- *   - 'machine': push with the branch's existing/ambient remote + credentials.
- *   - 'token':   push to a one-shot tokenized HTTPS remote URL built from the
- *                server-injected token, so no credential is persisted to disk.
- *                The token is never logged (the remote URL is redacted).
+ * pushes the branch to `origin` using the host's ambient git credentials. The
+ * actual command execution is injectable so unit tests never shell out to a
+ * real `git`.
  */
-
-import type { GitAuthMode } from './types.js';
 
 /** Result of running a command. */
 export interface ExecResult {
@@ -38,12 +31,6 @@ export interface GitOpsOptions {
   issueId: number;
   /** Issue title, used as the commit summary. */
   issueTitle: string;
-  /** Auth mode. Defaults to 'machine'. */
-  gitAuth?: GitAuthMode;
-  /** HTTPS clone/repo URL; required for token-mode push remote construction. */
-  repoUrl?: string;
-  /** Server-injected token (token mode only). Never logged. */
-  gitToken?: string;
   /** Injectable command runner. */
   exec: ExecFn;
   /** Optional streaming log sink. */
@@ -56,37 +43,6 @@ export function buildCommitMessage(issueId: number, issueTitle: string): string 
   // Keep the subject reasonable; full context lives in the PR body.
   const trimmed = subject.length > 72 ? `${subject.slice(0, 69)}...` : subject;
   return `${trimmed}\n\nRefs SF-${issueId}`;
-}
-
-/**
- * Rewrite an HTTPS git URL to embed a token for a one-shot push, e.g.
- *   https://github.com/acme/repo.git -> https://x-access-token:<tok>@github.com/acme/repo.git
- * SSH URLs are returned unchanged (token auth does not apply).
- */
-export function tokenizeRemote(repoUrl: string, token: string): string {
-  try {
-    const u = new URL(repoUrl);
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return repoUrl;
-    u.username = 'x-access-token';
-    u.password = token;
-    return u.toString();
-  } catch {
-    return repoUrl;
-  }
-}
-
-/** Redact any embedded credentials from a URL for safe logging. */
-export function redactRemote(remote: string): string {
-  try {
-    const u = new URL(remote);
-    if (u.username || u.password) {
-      u.username = 'x-access-token';
-      u.password = '***';
-    }
-    return u.toString();
-  } catch {
-    return remote;
-  }
 }
 
 /** True if the working tree has staged or unstaged changes. */
@@ -120,25 +76,9 @@ async function assertOkAsync(p: Promise<ExecResult>, what: string): Promise<Exec
 }
 
 /**
- * Push the branch using the configured auth mode.
- *   - machine: `git push -u origin <branch>`
- *   - token:   `git push -u <tokenized-remote> <branch>` (URL never logged)
+ * Push the branch to `origin` using the host's ambient git credentials.
  */
 export async function pushBranch(opts: GitOpsOptions): Promise<void> {
-  const mode: GitAuthMode = opts.gitAuth ?? 'machine';
-
-  if (mode === 'token') {
-    if (!opts.gitToken) throw new Error('git_auth=token but no git token was provided in the job payload');
-    if (!opts.repoUrl) throw new Error('git_auth=token requires a repository URL to build the push remote');
-    const remote = tokenizeRemote(opts.repoUrl, opts.gitToken);
-    opts.log?.(`Pushing ${opts.branch} to ${redactRemote(remote)}`);
-    await assertOkAsync(
-      opts.exec('git', ['push', '-u', remote, `HEAD:${opts.branch}`], { cwd: opts.workdir }),
-      'git push',
-    );
-    return;
-  }
-
   opts.log?.(`Pushing ${opts.branch} to origin`);
   await assertOkAsync(
     opts.exec('git', ['push', '-u', 'origin', `HEAD:${opts.branch}`], { cwd: opts.workdir }),

@@ -50,7 +50,6 @@ describe('openPullRequest', () => {
       base: 'develop',
       title: 'Wire up the dashboard',
       body: 'body',
-      gitAuth: 'machine',
       exec,
     });
     expect(url).toBe(prUrl);
@@ -83,35 +82,10 @@ describe('openPullRequest', () => {
     expect(calls[0]!.args).not.toContain('--base');
   });
 
-  it('passes GH_TOKEN env in token mode and never logs it', async () => {
-    const { exec, calls } = recordExec({ stdout: prUrl, stderr: '', exitCode: 0 });
-    const logs: string[] = [];
-    await openPullRequest({
-      workdir: '/w',
-      branch: 'sf-12',
-      base: 'main',
-      title: 't',
-      body: 'b',
-      gitAuth: 'token',
-      gitToken: 'ghs_secret',
-      exec,
-      log: (m) => logs.push(m),
-    });
-    expect(calls[0]!.env?.GH_TOKEN).toBe('ghs_secret');
-    expect(logs.join('\n')).not.toContain('ghs_secret');
-  });
-
   it('throws on a non-zero gh exit', async () => {
     const { exec } = recordExec({ stdout: '', stderr: 'auth required', exitCode: 1 });
     await expect(
       openPullRequest({ workdir: '/w', branch: 'sf-12', title: 't', body: 'b', exec }),
     ).rejects.toThrow(/gh pr create failed/);
-  });
-
-  it('throws if token mode lacks a token', async () => {
-    const { exec } = recordExec({ stdout: prUrl, stderr: '', exitCode: 0 });
-    await expect(
-      openPullRequest({ workdir: '/w', branch: 'sf-12', title: 't', body: 'b', gitAuth: 'token', exec }),
-    ).rejects.toThrow(/no git token/);
   });
 });

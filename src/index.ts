@@ -47,8 +47,6 @@ export {
   pushBranch,
   commitAndPush,
   buildCommitMessage,
-  tokenizeRemote,
-  redactRemote,
 } from './git-ops.js';
 export type { GitOpsOptions } from './git-ops.js';
 export { openPullRequest, buildPrBody } from './pr.js';

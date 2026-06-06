@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Git authentication is now ambient-only.** The agent always uses this
+  machine's git + `gh` CLI credentials (run `gh auth login` before starting).
+  Removed the `git_auth` config key / `VPS_AGENT_GIT_AUTH` env var, the
+  `token` auth mode, the per-job `git_token` payload field, and all
+  `GH_TOKEN`/tokenized-remote handling. The agent no longer receives, stores,
+  or injects any GitHub token, removing that token-handling surface entirely.
+
+### Security
+
+- `doctor` / pre-flight now **unconditionally** require an authenticated `gh`
+  session; the old token-mode relaxation that skipped the `gh auth` check is
+  gone.
+
 ## [0.1.0] - 2026-06-06
 
 Initial release of the Node/TypeScript VPS agent.
@@ -21,7 +36,7 @@ Initial release of the Node/TypeScript VPS agent.
   (`--token`, local-only).
 - **Layered configuration** (defaults < `config.json` < `.env` < env vars <
   CLI flags) with keys `api_url`, `token`, `harness`, `permission_mode`,
-  `git_auth`, `heartbeat_interval`, `poll_interval`, `log_level`,
+  `heartbeat_interval`, `poll_interval`, `log_level`,
   `max_log_batch_size`, `runner_id`, and `config_dir`.
 - **Runtime loop**: concurrent heartbeat loop (with system stats) and job poll
   loop with single-job concurrency, exponential backoff, and graceful shutdown.
@@ -32,9 +47,8 @@ Initial release of the Node/TypeScript VPS agent.
   and a `claude` harness (`ClaudeCodeHarness`) that runs Claude Code headless
   with a hard timeout and cancel support.
 - **Job pipeline**: isolated per-job workspace clone/checkout, harness run with
-  live log streaming, commit + push, and `gh pr create` (never merges).
-- **Pluggable git auth** (`machine` / `token`): per-job token threaded into the
-  push remote and `gh` via `GH_TOKEN`, never persisted.
+  live log streaming, commit + push, and `gh pr create` (never merges). Git and
+  `gh` use the host's ambient credentials.
 - **Pre-flight / `doctor`** checks for `git`, `gh`, and (when used) `claude`.
 - **Daemon** support via pidfile with stale-pid detection.
 - **Structured leveled logger** with rotation, plus `logs`/`logs -f` tailing.
@@ -43,9 +57,8 @@ Initial release of the Node/TypeScript VPS agent.
 
 - The config/token file is written owner-only (`0600`) inside an owner-only
   directory (`0700`); permissions are re-tightened on every write.
-- Secrets (runner token, per-job git token, provider keys) are redacted from
-  both the local agent log and the server-streamed job log; tokenized git
-  remotes are redacted before logging.
+- Secrets (runner token, provider keys) are redacted from both the local agent
+  log and the server-streamed job log.
 - The agent never executes a server-supplied command string: it only invokes
   `git`, `gh`, and `claude` with fixed, controlled argument arrays (no shell).
 

@@ -18,7 +18,6 @@
 
 import type { Harness, IssueContext, HarnessLogSink } from './harness.js';
 import type { AgentConfig } from './config.js';
-import type { GitAuthMode } from './types.js';
 import type { ExecFn } from './git-ops.js';
 import { defaultExec } from './exec.js';
 import { commitAndPush } from './git-ops.js';
@@ -75,7 +74,6 @@ export class JobExecutor {
   /** Run the full pipeline for one issue. Never throws; reports via result. */
   async execute(issue: IssueContext): Promise<ExecutionResult> {
     const { config, log, exec } = this.opts;
-    const gitAuth: GitAuthMode = config.git_auth;
     const cloneUrl = issue.cloneUrl ?? issue.repositoryUrl;
     const jobsDir = jobsRoot(config.config_dir);
     let jobDir: string | null = null;
@@ -93,8 +91,6 @@ export class JobExecutor {
         jobId: this.opts.jobId,
         cloneUrl,
         branch: issue.branchName,
-        gitAuth,
-        ...(issue.gitToken !== undefined ? { gitToken: issue.gitToken } : {}),
         exec,
         log,
       });
@@ -118,9 +114,6 @@ export class JobExecutor {
         branch: issue.branchName,
         issueId: issue.issueId,
         issueTitle: issue.issueTitle,
-        gitAuth,
-        repoUrl: cloneUrl,
-        ...(issue.gitToken !== undefined ? { gitToken: issue.gitToken } : {}),
         exec,
         log,
       });
@@ -136,8 +129,6 @@ export class JobExecutor {
         base: issue.defaultBranch ?? null,
         title: issue.issueTitle || `Resolve SF-${issue.issueId}`,
         body: buildPrBody(issue),
-        gitAuth,
-        ...(issue.gitToken !== undefined ? { gitToken: issue.gitToken } : {}),
         exec,
         log,
       });

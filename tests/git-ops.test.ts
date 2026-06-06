@@ -3,8 +3,6 @@ import {
   hasChanges,
   commitAndPush,
   buildCommitMessage,
-  tokenizeRemote,
-  redactRemote,
   type ExecFn,
   type ExecResult,
 } from '../src/git-ops.js';
@@ -39,18 +37,6 @@ describe('buildCommitMessage', () => {
   });
 });
 
-describe('tokenizeRemote / redactRemote', () => {
-  it('embeds the token into an https URL and redacts it back', () => {
-    const remote = tokenizeRemote('https://github.com/acme/repo.git', 'secrettoken');
-    expect(remote).toContain('x-access-token:secrettoken@github.com');
-    expect(redactRemote(remote)).not.toContain('secrettoken');
-    expect(redactRemote(remote)).toContain('***');
-  });
-  it('leaves ssh URLs untouched', () => {
-    expect(tokenizeRemote('git@github.com:acme/repo.git', 'tok')).toBe('git@github.com:acme/repo.git');
-  });
-});
-
 describe('hasChanges', () => {
   it('is true when git status --porcelain has output', async () => {
     const { exec } = scriptedExec([{ stdout: ' M file.ts\n', stderr: '', exitCode: 0 }]);
@@ -62,7 +48,7 @@ describe('hasChanges', () => {
   });
 });
 
-describe('commitAndPush (machine mode)', () => {
+describe('commitAndPush', () => {
   it('adds, commits, and pushes to origin', async () => {
     const { exec, calls } = scriptedExec([
       { stdout: ' M f.ts\n', stderr: '', exitCode: 0 }, // status
@@ -75,7 +61,6 @@ describe('commitAndPush (machine mode)', () => {
       branch: 'sf-7',
       issueId: 7,
       issueTitle: 'Fix it',
-      gitAuth: 'machine',
       exec,
     });
     expect(pushed).toBe(true);
@@ -94,49 +79,6 @@ describe('commitAndPush (machine mode)', () => {
     });
     expect(pushed).toBe(false);
     expect(calls).toHaveLength(1); // only the status check ran
-  });
-});
-
-describe('commitAndPush (token mode)', () => {
-  it('pushes to a tokenized remote, never to origin', async () => {
-    const { exec, calls } = scriptedExec([
-      { stdout: ' M f.ts\n', stderr: '', exitCode: 0 },
-      ok,
-      ok,
-      ok,
-    ]);
-    const logs: string[] = [];
-    await commitAndPush({
-      workdir: '/w',
-      branch: 'sf-7',
-      issueId: 7,
-      issueTitle: 'Fix it',
-      gitAuth: 'token',
-      gitToken: 'topsecret',
-      repoUrl: 'https://github.com/acme/repo.git',
-      exec,
-      log: (m) => logs.push(m),
-    });
-    const push = calls.at(-1)!;
-    expect(push.args[0]).toBe('push');
-    expect(push.args[2]).toContain('x-access-token:topsecret@github.com');
-    // The token must never appear in logs.
-    expect(logs.join('\n')).not.toContain('topsecret');
-  });
-
-  it('throws when token mode is selected but no token is present', async () => {
-    const { exec } = scriptedExec([{ stdout: ' M f.ts\n', stderr: '', exitCode: 0 }, ok, ok]);
-    await expect(
-      commitAndPush({
-        workdir: '/w',
-        branch: 'sf-7',
-        issueId: 7,
-        issueTitle: 'Fix it',
-        gitAuth: 'token',
-        repoUrl: 'https://github.com/acme/repo.git',
-        exec,
-      }),
-    ).rejects.toThrow(/no git token/);
   });
 });
 
