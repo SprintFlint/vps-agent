@@ -15,6 +15,8 @@ import { Logger, tailLog } from './logger.js';
 import { VERSION } from './version.js';
 import { register as runRegister } from './register.js';
 import { Runtime } from './runtime.js';
+import { preflight, formatReport } from './preflight.js';
+import { defaultExec } from './exec.js';
 import {
   defaultPidfile,
   inspectRunning,
@@ -103,6 +105,19 @@ export function buildProgram(): Command {
         return;
       }
 
+      // SF-142: fail fast if a prerequisite tool is missing/unauthed.
+      const report = await preflight({
+        harness: config.harness,
+        gitAuth: config.git_auth,
+        exec: defaultExec,
+      });
+      if (!report.ok) {
+        process.stderr.write(`${formatReport(report)}\n`);
+        process.stderr.write('Aborting start. Fix the failed checks (or run `vps-agent doctor`).\n');
+        process.exitCode = 1;
+        return;
+      }
+
       if (opts.daemon) {
         // Re-exec ourselves detached, without --daemon, redirecting output to the log.
         const logFile = join(config.config_dir, 'daemon.out.log');
@@ -165,6 +180,7 @@ export function buildProgram(): Command {
         api_url: config.api_url,
         harness: config.harness,
         permission_mode: config.permission_mode,
+        git_auth: config.git_auth,
         heartbeat_interval: config.heartbeat_interval,
         poll_interval: config.poll_interval,
         log_level: config.log_level,
@@ -230,16 +246,21 @@ export function buildProgram(): Command {
   config
     .command('set <key> <value>')
     .description(
-      'Set a config key (api_url, token, log_level, harness, permission_mode, ' +
+      'Set a config key (api_url, token, log_level, harness, permission_mode, git_auth, ' +
         'heartbeat_interval, poll_interval, max_log_batch_size)',
     )
     .action((key: string, value: string) => {
-      const stringKeys = ['api_url', 'token', 'log_level', 'harness', 'permission_mode'];
+      const stringKeys = ['api_url', 'token', 'log_level', 'harness', 'permission_mode', 'git_auth'];
       const numericKeys = ['heartbeat_interval', 'poll_interval', 'max_log_batch_size', 'runner_id'];
       if (![...stringKeys, ...numericKeys].includes(key)) {
         process.stderr.write(
           `Unknown config key "${key}". Allowed: ${[...stringKeys, ...numericKeys].join(', ')}\n`,
         );
+        process.exitCode = 1;
+        return;
+      }
+      if (key === 'git_auth' && value !== 'machine' && value !== 'token') {
+        process.stderr.write('git_auth must be "machine" or "token".\n');
         process.exitCode = 1;
         return;
       }
@@ -256,6 +277,20 @@ export function buildProgram(): Command {
       }
       saveConfig({ [key]: coerced }, cfg.config_dir);
       process.stdout.write(`Set ${key} in ${configPath(cfg.config_dir)}\n`);
+    });
+
+  program
+    .command('doctor')
+    .description('Check that git/gh/claude are installed, authenticated, and compatible')
+    .action(async () => {
+      const config = loadConfig();
+      const report = await preflight({
+        harness: config.harness,
+        gitAuth: config.git_auth,
+        exec: defaultExec,
+      });
+      process.stdout.write(`${formatReport(report)}\n`);
+      if (!report.ok) process.exitCode = 1;
     });
 
   program
