@@ -1,0 +1,53 @@
+import { describe, it, expect } from 'vitest';
+import {
+  NoopHarness,
+  HarnessRegistry,
+  defaultHarnessRegistry,
+  issueContextFromPayload,
+} from '../src/harness.js';
+import type { JobPayload } from '../src/types.js';
+
+const payload: JobPayload = {
+  issue_id: 42,
+  issue_title: 'Fix the thing',
+  repository_url: 'https://github.com/acme/repo',
+  branch_name: 'sf-42-fix-the-thing',
+  description: 'do it',
+};
+
+describe('issueContextFromPayload', () => {
+  it('maps snake_case payload to camelCase context', () => {
+    const ctx = issueContextFromPayload(payload, 'acceptEdits');
+    expect(ctx.issueId).toBe(42);
+    expect(ctx.issueTitle).toBe('Fix the thing');
+    expect(ctx.repositoryUrl).toBe('https://github.com/acme/repo');
+    expect(ctx.branchName).toBe('sf-42-fix-the-thing');
+    expect(ctx.permissionMode).toBe('acceptEdits');
+  });
+});
+
+describe('NoopHarness', () => {
+  it('always succeeds without changes', async () => {
+    const ctx = issueContextFromPayload(payload);
+    const result = await new NoopHarness().run('/tmp/workdir', ctx);
+    expect(result).toEqual({
+      success: true,
+      summary: expect.stringContaining('#42'),
+      changed: false,
+    });
+  });
+});
+
+describe('HarnessRegistry', () => {
+  it('resolves the built-in noop harness', () => {
+    const registry = defaultHarnessRegistry();
+    expect(registry.has('noop')).toBe(true);
+    expect(registry.names()).toContain('noop');
+    expect(registry.resolve('noop')).toBeInstanceOf(NoopHarness);
+  });
+
+  it('throws for unknown harness', () => {
+    const registry = new HarnessRegistry();
+    expect(() => registry.resolve('mystery')).toThrow(/Unknown harness "mystery"/);
+  });
+});
