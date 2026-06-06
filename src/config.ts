@@ -11,7 +11,7 @@
 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { GitAuthMode, HarnessName, LogLevel, PermissionMode } from './types.js';
 
 /** Fully-resolved runtime configuration. */
@@ -81,7 +81,12 @@ function defaults(): AgentConfig {
   };
 }
 
-const NUMERIC_KEYS = ['heartbeat_interval', 'poll_interval', 'max_log_batch_size', 'runner_id'] as const;
+const NUMERIC_KEYS = [
+  'heartbeat_interval',
+  'poll_interval',
+  'max_log_batch_size',
+  'runner_id',
+] as const;
 
 function coerceNumber(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
@@ -226,9 +231,20 @@ export function loadConfig(options: LoadOptions = {}): AgentConfig {
 /**
  * Persist a partial config to ~/.vps-agent/config.json, merging with what is
  * already there. `config_dir` is never written (it is itself the location).
+ *
+ * Security (SF-154): the file holds the runner token (a secret), so it is
+ * written owner-only (0600) inside an owner-only directory (0700). chmod is
+ * applied unconditionally so an already-existing, looser-permissioned file is
+ * tightened on every write. On platforms that ignore POSIX modes (e.g. Windows)
+ * chmod is a best-effort no-op and never fails the write.
  */
 export function saveConfig(patch: PersistedConfig, configDir: string = DEFAULT_CONFIG_DIR): void {
-  mkdirSync(configDir, { recursive: true });
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  try {
+    chmodSync(configDir, 0o700);
+  } catch {
+    /* best-effort; non-POSIX filesystems ignore modes */
+  }
   const current = readPersisted(configDir);
   const merged: PersistedConfig = { ...current };
   for (const [k, v] of Object.entries(patch)) {
@@ -236,7 +252,13 @@ export function saveConfig(patch: PersistedConfig, configDir: string = DEFAULT_C
       (merged as Record<string, unknown>)[k] = v;
     }
   }
-  writeFileSync(configPathFor(configDir), `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+  const file = configPathFor(configDir);
+  writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Absolute path to the config file for a given (or default) directory. */

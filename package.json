@@ -4,6 +4,15 @@
   "description": "VPS Agent CLI for SprintFlint Autoplay - connects your VPS to SprintFlint for automated job execution",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "sprintflint",
+    "autoplay",
+    "agent",
+    "runner",
+    "cli",
+    "claude-code"
+  ],
+  "homepage": "https://sprintflint.com",
   "bin": {
     "vps-agent": "./dist/cli.js"
   },
@@ -16,10 +25,18 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/install.sh",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "scripts": {
     "build": "tsup",
@@ -30,7 +47,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "commander": "^12.1.0"

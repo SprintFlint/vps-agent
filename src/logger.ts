@@ -20,6 +20,7 @@ import {
   watch,
 } from 'node:fs';
 import type { LogLevel } from './types.js';
+import { redactSecrets, redactValue } from './redact.js';
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 0,
@@ -120,11 +121,16 @@ export class Logger {
   log(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
     if (!this.enabled(level)) return;
 
+    // SF-154: scrub secrets from both message and metadata before they ever
+    // touch disk or the console.
+    const safeMessage = redactSecrets(message);
+    const safeMeta = meta ? (redactValue(meta) as Record<string, unknown>) : undefined;
+
     const record: LogRecord = {
       timestamp: new Date().toISOString(),
       level,
-      message,
-      ...(meta ?? {}),
+      message: safeMessage,
+      ...(safeMeta ?? {}),
     };
 
     this.rotateIfNeeded();
@@ -135,9 +141,10 @@ export class Logger {
     }
 
     if (this.toConsole) {
-      const metaStr = meta && Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
+      const metaStr =
+        safeMeta && Object.keys(safeMeta).length > 0 ? ` ${JSON.stringify(safeMeta)}` : '';
       process.stderr.write(
-        `${record.timestamp} [${level.toUpperCase()}] ${message}${metaStr}\n`,
+        `${record.timestamp} [${level.toUpperCase()}] ${safeMessage}${metaStr}\n`,
       );
     }
   }
@@ -217,7 +224,11 @@ export function tailLog(
       position = 0;
     }
     if (size > position) {
-      const stream = createReadStream(filePath, { start: position, end: size - 1, encoding: 'utf8' });
+      const stream = createReadStream(filePath, {
+        start: position,
+        end: size - 1,
+        encoding: 'utf8',
+      });
       let buf = '';
       stream.on('data', (chunk) => {
         buf += chunk;

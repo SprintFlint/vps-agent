@@ -9,6 +9,8 @@
 import { spawn } from 'node:child_process';
 import { openSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
 import { Command } from 'commander';
 import { loadConfig, saveConfig, configPath } from './config.js';
 import { Logger, tailLog } from './logger.js';
@@ -52,7 +54,11 @@ export function buildProgram(): Command {
         const config = loadConfig({
           overrides: opts.apiUrl ? { api_url: opts.apiUrl } : {},
         });
-        const logger = new Logger({ dir: config.config_dir, level: config.log_level, console: false });
+        const logger = new Logger({
+          dir: config.config_dir,
+          level: config.log_level,
+          console: false,
+        });
         try {
           const result = await runRegister(
             {
@@ -77,7 +83,9 @@ export function buildProgram(): Command {
             );
           }
         } catch (err) {
-          process.stderr.write(`register failed: ${err instanceof Error ? err.message : String(err)}\n`);
+          process.stderr.write(
+            `register failed: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
           process.exitCode = 1;
         }
       },
@@ -113,7 +121,9 @@ export function buildProgram(): Command {
       });
       if (!report.ok) {
         process.stderr.write(`${formatReport(report)}\n`);
-        process.stderr.write('Aborting start. Fix the failed checks (or run `vps-agent doctor`).\n');
+        process.stderr.write(
+          'Aborting start. Fix the failed checks (or run `vps-agent doctor`).\n',
+        );
         process.exitCode = 1;
         return;
       }
@@ -250,8 +260,20 @@ export function buildProgram(): Command {
         'heartbeat_interval, poll_interval, max_log_batch_size)',
     )
     .action((key: string, value: string) => {
-      const stringKeys = ['api_url', 'token', 'log_level', 'harness', 'permission_mode', 'git_auth'];
-      const numericKeys = ['heartbeat_interval', 'poll_interval', 'max_log_batch_size', 'runner_id'];
+      const stringKeys = [
+        'api_url',
+        'token',
+        'log_level',
+        'harness',
+        'permission_mode',
+        'git_auth',
+      ];
+      const numericKeys = [
+        'heartbeat_interval',
+        'poll_interval',
+        'max_log_batch_size',
+        'runner_id',
+      ];
       if (![...stringKeys, ...numericKeys].includes(key)) {
         process.stderr.write(
           `Unknown config key "${key}". Allowed: ${[...stringKeys, ...numericKeys].join(', ')}\n`,
@@ -308,8 +330,26 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   await program.parseAsync(argv);
 }
 
-// Execute when run as the CLI binary.
-main().catch((err: unknown) => {
-  process.stderr.write(`vps-agent: ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(1);
-});
+/**
+ * True when this module is the process entrypoint (i.e. invoked as the `vps-agent`
+ * binary), not merely imported (e.g. by tests). Guards the auto-run below so the
+ * CLI does not execute the test runner's argv. realpath handles the npm bin
+ * symlink that points at dist/cli.js.
+ */
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+// Execute only when run as the CLI binary.
+if (isMainModule()) {
+  main().catch((err: unknown) => {
+    process.stderr.write(`vps-agent: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
+}
