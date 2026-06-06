@@ -7,6 +7,7 @@
  */
 
 import type { HarnessName, JobPayload, PermissionMode } from './types.js';
+import { ClaudeCodeHarness } from './claude-harness.js';
 
 /**
  * Normalized job context handed to a harness.
@@ -24,6 +25,7 @@ export interface IssueContext {
 
   // --- Forward-compatible fields the server will add later ---
   body?: string;
+  acceptanceCriteria?: string | string[];
   comments?: Array<{ author?: string; body: string; created_at?: string }>;
   defaultBranch?: string;
   cloneUrl?: string;
@@ -31,6 +33,12 @@ export interface IssueContext {
 
   /** Permission mode for this run, resolved from config. */
   permissionMode?: PermissionMode;
+
+  /**
+   * SF-140: server-injected git token, only present when git_auth = 'token'.
+   * Threaded to git push + gh PR creation; never logged.
+   */
+  gitToken?: string;
 }
 
 /** Outcome of a harness run. */
@@ -40,9 +48,26 @@ export interface HarnessResult {
   changed: boolean;
 }
 
+/**
+ * Sink a harness uses to stream live output (stdout/stderr/progress) to the job
+ * log. Optional: harnesses that produce no streaming output may ignore it.
+ */
+export type HarnessLogSink = (
+  message: string,
+  level?: 'info' | 'warn' | 'error' | 'debug',
+) => void;
+
+/** Options passed alongside a harness run (additive; all optional). */
+export interface HarnessRunOptions {
+  /** Stream live output here (forwarded to the job's LogStreamer). */
+  log?: HarnessLogSink;
+  /** Abort signal: fires on job timeout or cancel so the harness can kill work. */
+  signal?: AbortSignal;
+}
+
 /** Pluggable job executor. */
 export interface Harness {
-  run(workdir: string, issue: IssueContext): Promise<HarnessResult>;
+  run(workdir: string, issue: IssueContext, options?: HarnessRunOptions): Promise<HarnessResult>;
 }
 
 /** Build an IssueContext from a raw next_job payload. */
@@ -56,6 +81,15 @@ export function issueContextFromPayload(
     repositoryUrl: payload.repository_url,
     branchName: payload.branch_name,
     description: payload.description,
+    ...(payload.body !== undefined ? { body: payload.body } : {}),
+    ...(payload.acceptance_criteria !== undefined
+      ? { acceptanceCriteria: payload.acceptance_criteria }
+      : {}),
+    ...(payload.comments !== undefined ? { comments: payload.comments } : {}),
+    ...(payload.default_branch !== undefined ? { defaultBranch: payload.default_branch } : {}),
+    ...(payload.clone_url !== undefined ? { cloneUrl: payload.clone_url } : {}),
+    ...(payload.tags !== undefined ? { tags: payload.tags } : {}),
+    ...(payload.git_token !== undefined ? { gitToken: payload.git_token } : {}),
     ...(permissionMode !== undefined ? { permissionMode } : {}),
   };
 }
@@ -111,5 +145,7 @@ export class NoopHarness implements Harness {
 
 /** A registry pre-populated with the built-in harnesses. */
 export function defaultHarnessRegistry(): HarnessRegistry {
-  return new HarnessRegistry().register('noop', () => new NoopHarness());
+  return new HarnessRegistry()
+    .register('noop', () => new NoopHarness())
+    .register('claude', () => new ClaudeCodeHarness());
 }

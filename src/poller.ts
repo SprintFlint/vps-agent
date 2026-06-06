@@ -19,13 +19,10 @@ import type { Logger } from './logger.js';
 import type { HarnessRegistry, IssueContext } from './harness.js';
 import { issueContextFromPayload } from './harness.js';
 import { LogStreamer } from './log-streamer.js';
+import { JobExecutor, type ExecutionResult } from './job-executor.js';
+import type { ExecFn } from './git-ops.js';
 import type { AgentConfig } from './config.js';
 import type { Job, JobStatus, NextJobResponse } from './types.js';
-
-/** Default workspace root for harness runs. */
-function defaultWorkdir(configDir: string, jobId: number): string {
-  return `${configDir}/jobs/${jobId}`;
-}
 
 function isJob(res: NextJobResponse): res is Job {
   return (res as Job).job_id !== undefined && (res as { job: null }).job !== null;
@@ -42,18 +39,18 @@ export interface PollerOptions {
   pollIntervalSeconds?: number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (handle: ReturnType<typeof setTimeout>) => void;
-  /** Resolve a workdir for a job. Defaults to <config_dir>/jobs/<id>. */
-  resolveWorkdir?: (job: Job) => string;
+  /** Injectable command runner threaded into the JobExecutor (git/gh). */
+  exec?: ExecFn;
   maxBackoffMultiplier?: number;
 }
 
 export class Poller {
   private readonly opts: Required<
-    Omit<PollerOptions, 'onBusyChange' | 'pollIntervalSeconds' | 'resolveWorkdir'>
+    Omit<PollerOptions, 'onBusyChange' | 'pollIntervalSeconds' | 'exec'>
   > & {
     onBusyChange: (busy: boolean) => void;
     pollIntervalSeconds: number;
-    resolveWorkdir: (job: Job) => string;
+    exec?: ExecFn;
   };
 
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -71,8 +68,7 @@ export class Poller {
       pollIntervalSeconds: options.pollIntervalSeconds ?? options.config.poll_interval,
       setTimer: options.setTimer ?? ((fn, ms) => setTimeout(fn, ms)),
       clearTimer: options.clearTimer ?? ((h) => clearTimeout(h)),
-      resolveWorkdir:
-        options.resolveWorkdir ?? ((job) => defaultWorkdir(options.config.config_dir, job.job_id)),
+      ...(options.exec !== undefined ? { exec: options.exec } : {}),
       maxBackoffMultiplier: options.maxBackoffMultiplier ?? 8,
     };
   }
@@ -170,23 +166,43 @@ export class Poller {
         job.payload,
         this.opts.config.permission_mode,
       );
-      const workdir = this.opts.resolveWorkdir(job);
 
       const harness = this.opts.registry.resolve(this.opts.config.harness);
-      streamer.append(`Running harness "${this.opts.config.harness}" in ${workdir}`);
+      const harnessName = this.opts.config.harness;
+      streamer.append(`Running harness "${harnessName}"`);
 
-      const outcome = await harness.run(workdir, issue);
-      streamer.append(outcome.summary, outcome.success ? 'info' : 'error');
-
-      if (this.opts.config.harness === 'noop') {
-        // NoopHarness proves the loop; flag it clearly so nobody thinks work ran.
+      let outcome: ExecutionResult;
+      if (harnessName === 'noop') {
+        // NoopHarness proves the loop without touching a repo: run it in place,
+        // skip the clone/git/PR pipeline.
+        const noop = await harness.run(this.opts.config.config_dir, issue, {
+          log: (m, lvl) => streamer.append(m, lvl ?? 'info'),
+        });
+        outcome = { success: noop.success, summary: noop.summary, changed: noop.changed };
         streamer.append('No harness configured; job acknowledged without code changes.', 'warn');
+      } else {
+        const executor = new JobExecutor({
+          harness,
+          config: this.opts.config,
+          jobId: job.job_id,
+          log: (m, lvl) => streamer.append(m, lvl ?? 'info'),
+          ...(this.opts.exec !== undefined ? { exec: this.opts.exec } : {}),
+        });
+        outcome = await executor.execute(issue);
       }
 
+      streamer.append(outcome.summary, outcome.success ? 'info' : 'error');
+      if (outcome.pr_url) streamer.append(`Pull request: ${outcome.pr_url}`);
+
       status = outcome.success ? 'completed' : 'failed';
-      result = { summary: outcome.summary, changed: outcome.changed, harness: this.opts.config.harness };
+      result = {
+        summary: outcome.summary,
+        changed: outcome.changed,
+        harness: harnessName,
+        ...(outcome.pr_url ? { pr_url: outcome.pr_url } : {}),
+      };
       if (!outcome.success) errorMessage = outcome.summary;
-      log.info('job finished', { status, changed: outcome.changed });
+      log.info('job finished', { status, changed: outcome.changed, pr_url: outcome.pr_url });
     } catch (err) {
       status = 'failed';
       errorMessage = err instanceof Error ? err.message : String(err);

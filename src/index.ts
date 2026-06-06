@@ -29,7 +29,36 @@ export {
   defaultHarnessRegistry,
   issueContextFromPayload,
 } from './harness.js';
-export type { Harness, HarnessResult, HarnessFactory, IssueContext } from './harness.js';
+export type {
+  Harness,
+  HarnessResult,
+  HarnessFactory,
+  IssueContext,
+  HarnessLogSink,
+  HarnessRunOptions,
+} from './harness.js';
+export { ClaudeCodeHarness, buildPrompt, mapPermissionMode } from './claude-harness.js';
+export type { ClaudeCodeHarnessOptions, SpawnFn, SpawnedProcess } from './claude-harness.js';
+export { runCommand, defaultExec } from './exec.js';
+export type { ExecFn, ExecResult, DefaultExecOptions } from './exec.js';
+export {
+  hasChanges,
+  commitAll,
+  pushBranch,
+  commitAndPush,
+  buildCommitMessage,
+  tokenizeRemote,
+  redactRemote,
+} from './git-ops.js';
+export type { GitOpsOptions } from './git-ops.js';
+export { openPullRequest, buildPrBody } from './pr.js';
+export type { OpenPrOptions } from './pr.js';
+export { prepareWorkspace, cleanupWorkspace, jobsRoot } from './workspace.js';
+export type { Workspace, PrepareWorkspaceOptions } from './workspace.js';
+export { JobExecutor } from './job-executor.js';
+export type { JobExecutorOptions, ExecutionResult } from './job-executor.js';
+export { preflight, formatReport, parseVersion } from './preflight.js';
+export type { PreflightInput, PreflightReport, CheckResult } from './preflight.js';
 export { collectSystemStats } from './system-stats.js';
 export { HeartbeatLoop } from './heartbeat.js';
 export type { HeartbeatOptions } from './heartbeat.js';

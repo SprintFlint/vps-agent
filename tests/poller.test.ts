@@ -5,6 +5,12 @@ import type { ApiClient } from '../src/api-client.js';
 import type { Logger } from '../src/logger.js';
 import type { AgentConfig } from '../src/config.js';
 import type { Job } from '../src/types.js';
+import type { ExecFn, ExecResult } from '../src/git-ops.js';
+
+/** Mock exec where every git/gh command succeeds with empty output. */
+function okExec(): ExecFn {
+  return vi.fn(async (): Promise<ExecResult> => ({ stdout: '', stderr: '', exitCode: 0 }));
+}
 
 function fakeLogger(): Logger {
   const l: Partial<Logger> = {
@@ -102,6 +108,7 @@ describe('Poller', () => {
       logger: fakeLogger(),
       registry,
       config: baseConfig({ harness: 'boom' }),
+      exec: okExec(),
     });
 
     await poller.runJob(job);
@@ -109,6 +116,7 @@ describe('Poller', () => {
     const updateJob = client.updateJob as ReturnType<typeof vi.fn>;
     const final = updateJob.mock.calls.at(-1)![0] as { status: string; error_message?: string };
     expect(final.status).toBe('failed');
+    // The JobExecutor catches the harness error and reports it as the summary.
     expect(final.error_message).toContain('harness exploded');
   });
 
