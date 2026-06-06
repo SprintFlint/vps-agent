@@ -21,6 +21,7 @@ function recordExec(result: ExecResult): { exec: ExecFn; calls: Recorded[] } {
 
 const payload: JobPayload = {
   issue_id: 12,
+  issue_reference: 'SF12',
   issue_title: 'Wire up the dashboard',
   repository_url: 'https://github.com/acme/repo.git',
   branch_name: 'sf-12',
@@ -30,12 +31,18 @@ const payload: JobPayload = {
 };
 
 describe('buildPrBody', () => {
-  it('includes description, criteria, and the issue ref', () => {
+  it('includes description, criteria, and the issue reference', () => {
     const body = buildPrBody(issueContextFromPayload(payload));
     expect(body).toContain('Build the dashboard view');
     expect(body).toContain('## Acceptance criteria');
     expect(body).toContain('- shows metrics');
-    expect(body).toContain('Refs SF-12');
+    expect(body).toContain('Refs SF12');
+  });
+
+  it('falls back to "#<id>" when no issue reference is present', () => {
+    const { issue_reference, ...without } = payload;
+    void issue_reference;
+    expect(buildPrBody(issueContextFromPayload(without))).toContain('Refs #12');
   });
 });
 

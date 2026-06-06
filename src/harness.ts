@@ -23,6 +23,9 @@ export interface IssueContext {
   branchName: string;
   description: string | null;
 
+  /** Human issue reference (e.g. "SF121") for commit/PR messages. */
+  issueReference?: string;
+
   // --- Forward-compatible fields the server will add later ---
   body?: string;
   acceptanceCriteria?: string | string[];
@@ -64,6 +67,25 @@ export interface Harness {
   run(workdir: string, issue: IssueContext, options?: HarnessRunOptions): Promise<HarnessResult>;
 }
 
+/**
+ * Resolve a safe branch name from the payload. The server normally sends a
+ * generated name, but a runner can claim a job within its poll interval before
+ * the async branch-name job has populated it — in which case `branch_name`
+ * arrives empty or as the literal string "null". Never push to such a branch;
+ * fall back to a deterministic name derived from the issue reference or id.
+ */
+export function resolveBranchName(payload: JobPayload): string {
+  const raw = String(payload.branch_name ?? '').trim();
+  const lowered = raw.toLowerCase();
+  if (raw && lowered !== 'null' && lowered !== 'undefined') return raw;
+
+  const ref = String(payload.issue_reference ?? '').trim();
+  const slug = ref
+    ? ref.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    : '';
+  return `autoplay/${slug || `issue-${payload.issue_id}`}`;
+}
+
 /** Build an IssueContext from a raw next_job payload. */
 export function issueContextFromPayload(
   payload: JobPayload,
@@ -73,8 +95,11 @@ export function issueContextFromPayload(
     issueId: payload.issue_id,
     issueTitle: payload.issue_title,
     repositoryUrl: payload.repository_url,
-    branchName: payload.branch_name,
+    branchName: resolveBranchName(payload),
     description: payload.description,
+    ...(payload.issue_reference !== undefined
+      ? { issueReference: payload.issue_reference }
+      : {}),
     ...(payload.body !== undefined ? { body: payload.body } : {}),
     ...(payload.acceptance_criteria !== undefined
       ? { acceptanceCriteria: payload.acceptance_criteria }

@@ -27,13 +27,16 @@ function scriptedExec(results: ExecResult[]): { exec: ExecFn; calls: Call[] } {
 const ok: ExecResult = { stdout: '', stderr: '', exitCode: 0 };
 
 describe('buildCommitMessage', () => {
-  it('uses the title and appends an issue ref', () => {
-    expect(buildCommitMessage(7, 'Fix the login bug')).toBe('Fix the login bug\n\nRefs SF-7');
+  it('uses the title and appends the issue reference', () => {
+    expect(buildCommitMessage('SF-7', 'Fix the login bug')).toBe('Fix the login bug\n\nRefs SF-7');
   });
   it('truncates very long subjects', () => {
-    const msg = buildCommitMessage(7, 'x'.repeat(100));
+    const msg = buildCommitMessage('SF-7', 'x'.repeat(100));
     expect(msg.split('\n')[0]!.length).toBeLessThanOrEqual(72);
     expect(msg).toContain('Refs SF-7');
+  });
+  it('falls back to "Resolve <ref>" when the title is blank', () => {
+    expect(buildCommitMessage('SF-7', '   ')).toBe('Resolve SF-7\n\nRefs SF-7');
   });
 });
 
@@ -59,7 +62,7 @@ describe('commitAndPush', () => {
     const pushed = await commitAndPush({
       workdir: '/w',
       branch: 'sf-7',
-      issueId: 7,
+      issueRef: 'SF-7',
       issueTitle: 'Fix it',
       exec,
     });
@@ -73,7 +76,7 @@ describe('commitAndPush', () => {
     const pushed = await commitAndPush({
       workdir: '/w',
       branch: 'sf-7',
-      issueId: 7,
+      issueRef: 'SF-7',
       issueTitle: 'Fix it',
       exec,
     });
@@ -90,7 +93,7 @@ describe('commit failure', () => {
       { stdout: '', stderr: 'nothing to commit', exitCode: 1 }, // commit fails
     ]);
     await expect(
-      commitAndPush({ workdir: '/w', branch: 'sf-7', issueId: 7, issueTitle: 'x', exec }),
+      commitAndPush({ workdir: '/w', branch: 'sf-7', issueRef: 'SF-7', issueTitle: 'x', exec }),
     ).rejects.toThrow(/git commit failed/);
   });
 });
