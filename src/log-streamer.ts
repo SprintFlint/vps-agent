@@ -15,6 +15,7 @@
 import type { ApiClient } from './api-client.js';
 import type { Logger } from './logger.js';
 import type { LogLine, LogLevel } from './types.js';
+import { redactSecrets, redactValue } from './redact.js';
 
 export interface LogStreamerOptions {
   client: ApiClient;
@@ -59,13 +60,19 @@ export class LogStreamer {
   }
 
   /** Queue a log line. Triggers an immediate flush once the batch fills. */
-  append(message: string, level: LogLevel | string = 'info', metadata?: Record<string, unknown>): void {
+  append(
+    message: string,
+    level: LogLevel | string = 'info',
+    metadata?: Record<string, unknown>,
+  ): void {
     if (this.stopped) return;
+    // SF-154: these lines are POSTed to the server's append_log and shown in the
+    // dashboard; scrub any secret that slipped into harness/git/gh output.
     const line: LogLine = {
       timestamp: new Date().toISOString(),
       level,
-      message,
-      ...(metadata ? { metadata } : {}),
+      message: redactSecrets(message),
+      ...(metadata ? { metadata: redactValue(metadata) as Record<string, unknown> } : {}),
     };
     this.buffer.push(line);
     if (this.buffer.length >= this.maxBatchSize) {

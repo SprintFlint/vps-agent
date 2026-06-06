@@ -81,3 +81,4 @@ export {
 } from './daemon.js';
 export type { RunningInfo } from './daemon.js';
 export { VERSION } from './version.js';
+export { redactSecrets, redactValue, REDACTED } from './redact.js';
