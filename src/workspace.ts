@@ -6,16 +6,13 @@
  * finishes (success OR failure) the directory is removed so jobs never leak
  * disk or cross-contaminate each other.
  *
- * Cloning respects SF-140 git_auth: in 'token' mode a tokenized HTTPS remote is
- * used so private repos clone without persisting credentials. The token is
- * never logged.
+ * Cloning uses the host's ambient git credentials (gh / credential helper /
+ * SSH agent); no credentials are handled or persisted by the agent.
  */
 
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExecFn } from './git-ops.js';
-import { tokenizeRemote, redactRemote } from './git-ops.js';
-import type { GitAuthMode } from './types.js';
 
 export interface PrepareWorkspaceOptions {
   /** Root jobs dir, e.g. <config_dir>/jobs. */
@@ -24,8 +21,6 @@ export interface PrepareWorkspaceOptions {
   /** URL to clone. Prefer IssueContext.cloneUrl, fall back to repositoryUrl. */
   cloneUrl: string;
   branch: string;
-  gitAuth?: GitAuthMode;
-  gitToken?: string;
   exec: ExecFn;
   log?: (message: string, level?: 'info' | 'warn' | 'error' | 'debug') => void;
 }
@@ -57,13 +52,8 @@ export async function prepareWorkspace(opts: PrepareWorkspaceOptions): Promise<W
   rmSync(jobDir, { recursive: true, force: true });
   mkdirSync(jobDir, { recursive: true });
 
-  const remote =
-    (opts.gitAuth ?? 'machine') === 'token' && opts.gitToken
-      ? tokenizeRemote(opts.cloneUrl, opts.gitToken)
-      : opts.cloneUrl;
-
-  opts.log?.(`Cloning ${redactRemote(remote)} into ${repoDir}`);
-  assertOk(await opts.exec('git', ['clone', remote, repoDir]), 'git clone');
+  opts.log?.(`Cloning ${opts.cloneUrl} into ${repoDir}`);
+  assertOk(await opts.exec('git', ['clone', opts.cloneUrl, repoDir]), 'git clone');
 
   // Try to check out an existing branch; if it doesn't exist, create it.
   const checkout = await opts.exec('git', ['checkout', opts.branch], { cwd: repoDir });

@@ -29,8 +29,6 @@ describe('public index exports', () => {
       'runCommand',
       'defaultExec',
       'commitAndPush',
-      'tokenizeRemote',
-      'redactRemote',
       'openPullRequest',
       'buildPrBody',
       'prepareWorkspace',

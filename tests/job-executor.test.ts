@@ -39,7 +39,6 @@ function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
     log_level: 'info',
     harness: 'claude',
     permission_mode: 'default',
-    git_auth: 'machine',
     config_dir: root,
     runner_id: 1,
     heartbeat_interval: 30,
@@ -75,7 +74,7 @@ afterEach(() => {
 });
 
 describe('JobExecutor', () => {
-  it('clones, runs harness, commits, pushes (machine), opens PR, and returns pr_url', async () => {
+  it('clones, runs harness, commits, pushes, opens PR, and returns pr_url', async () => {
     const { exec, calls } = pipelineExec();
     const logs: string[] = [];
     const executor = new JobExecutor({
@@ -101,33 +100,31 @@ describe('JobExecutor', () => {
       'git push',
       'gh pr',
     ]);
-    // machine push goes to origin
+    // push goes to origin via ambient credentials
     const push = calls.find((c) => c.command === 'git' && c.args[0] === 'push')!;
     expect(push.args).toContain('origin');
     // workspace cleaned up
     expect(existsSync(join(root, 'jobs', '50'))).toBe(false);
   });
 
-  it('threads token auth into push remote and gh env (token mode)', async () => {
+  it('clones via the plain url with ambient credentials', async () => {
     const { exec, calls } = pipelineExec();
     const executor = new JobExecutor({
       harness: changingHarness,
-      config: config({ git_auth: 'token' }),
+      config: config(),
       jobId: 51,
       log: () => {},
       exec,
     });
     const result = await executor.execute(
-      issueContextFromPayload(payload({ git_token: 'sekret', issue_id: 51, branch_name: 'sf-51' })),
+      issueContextFromPayload(payload({ issue_id: 51, branch_name: 'sf-51' })),
     );
     expect(result.pr_url).toBe(prUrl);
 
     const clone = calls.find((c) => c.args[0] === 'clone')!;
-    expect(clone.args[1]).toContain('x-access-token:sekret@github.com');
+    expect(clone.args[1]).toBe('https://github.com/acme/repo.git');
     const push = calls.find((c) => c.args[0] === 'push')!;
-    expect(push.args[2]).toContain('x-access-token:sekret@github.com');
-    const gh = calls.find((c) => c.command === 'gh')!;
-    expect(gh.env?.GH_TOKEN).toBe('sekret');
+    expect(push.args).toContain('origin');
   });
 
   it('skips git/PR when the harness reports no changes', async () => {

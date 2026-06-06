@@ -18,16 +18,6 @@ export type HarnessName = 'noop' | (string & {});
  */
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | (string & {});
 
-/**
- * SF-140: How git/gh authenticate when pushing branches and opening PRs.
- *   - 'machine': use the VPS's ambient git/gh credentials (gh auth login,
- *     ~/.gitconfig credential helper, SSH agent, etc.).
- *   - 'token': use a token injected by the server in the job payload
- *     (payload.git_token). The token is exported as GH_TOKEN for gh and woven
- *     into an HTTPS push remote for git.
- */
-export type GitAuthMode = 'machine' | 'token';
-
 // --- Server response payloads -------------------------------------------------
 
 /** Runner config block returned by the register endpoint. */
@@ -91,11 +81,6 @@ export interface JobPayload {
   clone_url?: string;
   /** Labels/tags on the issue. */
   tags?: string[];
-  /**
-   * SF-140: server-injected git credential, used only when git_auth = 'token'.
-   * Never logged; woven into the push remote and exported to gh as GH_TOKEN.
-   */
-  git_token?: string;
 }
 
 /** A job assignment from the server. */

@@ -65,9 +65,8 @@ describe('prepareWorkspace', () => {
     expect(calls.at(-1)!.args).toEqual(['checkout', '-b', 'sf-new']);
   });
 
-  it('uses a tokenized remote in token mode and redacts it in logs', async () => {
+  it('clones via the plain url with ambient credentials', async () => {
     const calls: Call[] = [];
-    const logs: string[] = [];
     const exec: ExecFn = async (command, args) => {
       calls.push({ command, args });
       return ok;
@@ -77,13 +76,9 @@ describe('prepareWorkspace', () => {
       jobId: 7,
       cloneUrl: 'https://github.com/acme/repo.git',
       branch: 'sf-7',
-      gitAuth: 'token',
-      gitToken: 'shh',
       exec,
-      log: (m) => logs.push(m),
     });
-    expect(calls[0]!.args[1]).toContain('x-access-token:shh@github.com');
-    expect(logs.join('\n')).not.toContain('shh');
+    expect(calls[0]!.args[1]).toBe('https://github.com/acme/repo.git');
   });
 
   it('throws when git clone fails', async () => {
