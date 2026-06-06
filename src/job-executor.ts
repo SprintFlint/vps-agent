@@ -109,10 +109,12 @@ export class JobExecutor {
         return { success: true, summary: outcome.summary, changed: false };
       }
 
+      const issueRef = issue.issueReference ?? `#${issue.issueId}`;
+
       const pushed = await commitAndPush({
         workdir: ws.repoDir,
         branch: issue.branchName,
-        issueId: issue.issueId,
+        issueRef,
         issueTitle: issue.issueTitle,
         exec,
         log,
@@ -127,7 +129,7 @@ export class JobExecutor {
         workdir: ws.repoDir,
         branch: issue.branchName,
         base: issue.defaultBranch ?? null,
-        title: issue.issueTitle || `Resolve SF-${issue.issueId}`,
+        title: issue.issueTitle || `Resolve ${issueRef}`,
         body: buildPrBody(issue),
         exec,
         log,

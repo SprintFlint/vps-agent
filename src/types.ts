@@ -68,6 +68,13 @@ export interface JobPayload {
   branch_name: string;
   description: string | null;
 
+  /**
+   * Human issue reference (e.g. "SF121"), used in commit messages, the PR
+   * title, and as a branch-name fallback. Distinct from `issue_id`, which is
+   * the database id. Optional for backward compatibility; the server sends it.
+   */
+  issue_reference?: string;
+
   // --- Forward-compatible fields the server will add later (all optional) ---
   /** Full issue body (markdown), if richer than `description`. */
   body?: string;

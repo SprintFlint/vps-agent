@@ -27,8 +27,8 @@ export interface GitOpsOptions {
   workdir: string;
   /** Branch to push. */
   branch: string;
-  /** Issue id, woven into the commit message and as a closing ref. */
-  issueId: number;
+  /** Human issue reference (e.g. "SF121"), used in the commit message trailer. */
+  issueRef: string;
   /** Issue title, used as the commit summary. */
   issueTitle: string;
   /** Injectable command runner. */
@@ -38,11 +38,11 @@ export interface GitOpsOptions {
 }
 
 /** Build the commit message: a conventional summary + an issue ref trailer. */
-export function buildCommitMessage(issueId: number, issueTitle: string): string {
-  const subject = issueTitle.trim() || `Resolve issue #${issueId}`;
+export function buildCommitMessage(issueRef: string, issueTitle: string): string {
+  const subject = issueTitle.trim() || `Resolve ${issueRef}`;
   // Keep the subject reasonable; full context lives in the PR body.
   const trimmed = subject.length > 72 ? `${subject.slice(0, 69)}...` : subject;
-  return `${trimmed}\n\nRefs SF-${issueId}`;
+  return `${trimmed}\n\nRefs ${issueRef}`;
 }
 
 /** True if the working tree has staged or unstaged changes. */
@@ -60,12 +60,12 @@ function assertOk(res: ExecResult, what: string): void {
 /** Stage all changes and commit them. Returns the committed message. */
 export async function commitAll(opts: GitOpsOptions): Promise<string> {
   await assertOkAsync(opts.exec('git', ['add', '-A'], { cwd: opts.workdir }), 'git add');
-  const message = buildCommitMessage(opts.issueId, opts.issueTitle);
+  const message = buildCommitMessage(opts.issueRef, opts.issueTitle);
   await assertOkAsync(
     opts.exec('git', ['commit', '-m', message], { cwd: opts.workdir }),
     'git commit',
   );
-  opts.log?.(`Committed changes for SF-${opts.issueId}`);
+  opts.log?.(`Committed changes for ${opts.issueRef}`);
   return message;
 }
 

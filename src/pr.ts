@@ -34,7 +34,7 @@ export function buildPrBody(issue: IssueContext): string {
     if (ac) parts.push(`## Acceptance criteria\n\n${ac}`);
   }
 
-  parts.push(`Refs SF-${issue.issueId}`);
+  parts.push(`Refs ${issue.issueReference ?? `#${issue.issueId}`}`);
   parts.push('\n_Automated by the SprintFlint VPS runner._');
   return parts.join('\n\n');
 }
