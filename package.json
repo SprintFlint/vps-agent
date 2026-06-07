@@ -21,7 +21,7 @@
     "url": "https://github.com/SprintFlint/vps-agent/issues"
   },
   "bin": {
-    "vps-agent": "./dist/cli.js"
+    "vps-agent": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
