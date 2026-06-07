@@ -84,7 +84,8 @@ export function mapPermissionMode(mode: PermissionMode | undefined): string {
 /** Assemble the headless prompt from the issue context. */
 export function buildPrompt(issue: IssueContext): string {
   const lines: string[] = [];
-  lines.push(`You are an autonomous software engineer working on issue SF-${issue.issueId}.`);
+  const ref = issue.issueReference ?? `#${issue.issueId}`;
+  lines.push(`You are an autonomous software engineer working on issue ${ref}.`);
   lines.push('');
   lines.push(`# Title`);
   lines.push(issue.issueTitle);
@@ -239,7 +240,7 @@ export class ClaudeCodeHarness implements Harness {
           return;
         }
         if (code === 0) {
-          const summary = tail.trim().split('\n').slice(-5).join('\n') || `claude completed issue SF-${issue.issueId}`;
+          const summary = tail.trim().split('\n').slice(-5).join('\n') || `claude completed issue ${issue.issueReference ?? `#${issue.issueId}`}`;
           finish({ success: true, summary, changed: true });
           return;
         }

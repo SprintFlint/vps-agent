@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   populated it), the agent now derives a deterministic `autoplay/<issue-ref>`
   branch instead of pushing to a bogus one.
 - **Use the human issue reference, not the database id.** Commit messages, the
-  PR title, and the PR body now use the issue reference from the job payload
-  (e.g. `SF121`) instead of the numeric database id, falling back to `#<id>`
-  when the server omits the reference.
+  PR title, the PR body, and the prompt handed to the harness now use the issue
+  reference from the job payload (e.g. `SF121`) instead of the numeric database
+  id, falling back to `#<id>` when the server omits the reference.
 
 ### Changed
 
