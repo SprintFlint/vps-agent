@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Never push to a `null` branch.** When the server's `branch_name` arrives
+  empty or as the literal string `"null"`/`"undefined"` (a runner can claim a
+  job within its poll interval before the server's async branch-name job has
+  populated it), the agent now derives a deterministic `autoplay/<issue-ref>`
+  branch instead of pushing to a bogus one.
+- **Use the human issue reference, not the database id.** Commit messages, the
+  PR title, and the PR body now use the issue reference from the job payload
+  (e.g. `SF121`) instead of the numeric database id, falling back to `#<id>`
+  when the server omits the reference.
+
 ### Changed
 
 - **Git authentication is now ambient-only.** The agent always uses this
