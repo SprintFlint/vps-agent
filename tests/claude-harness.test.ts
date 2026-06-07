@@ -24,6 +24,7 @@ class FakeChild extends EventEmitter implements SpawnedProcess {
 function payload(overrides: Partial<JobPayload> = {}): JobPayload {
   return {
     issue_id: 99,
+    issue_reference: 'SF-99',
     issue_title: 'Add a widget',
     repository_url: 'https://github.com/acme/repo.git',
     branch_name: 'sf-99',
