@@ -13,6 +13,13 @@
     "claude-code"
   ],
   "homepage": "https://sprintflint.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SprintFlint/vps-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SprintFlint/vps-agent/issues"
+  },
   "bin": {
     "vps-agent": "./dist/cli.js"
   },
@@ -35,8 +42,7 @@
     "node": ">=18"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
