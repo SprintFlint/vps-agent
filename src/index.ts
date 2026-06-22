@@ -53,6 +53,8 @@ export { openPullRequest, buildPrBody } from './pr.js';
 export type { OpenPrOptions } from './pr.js';
 export { prepareWorkspace, cleanupWorkspace, jobsRoot } from './workspace.js';
 export type { Workspace, PrepareWorkspaceOptions } from './workspace.js';
+export { resolveSource, repoSlug, isSourceMode, SOURCE_MODES } from './source-mode.js';
+export type { SourceMode, ProjectSourceConfig, ResolvedSource } from './source-mode.js';
 export { JobExecutor } from './job-executor.js';
 export type { JobExecutorOptions, ExecutionResult } from './job-executor.js';
 export { preflight, formatReport, parseVersion } from './preflight.js';
