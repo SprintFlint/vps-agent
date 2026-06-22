@@ -6,13 +6,15 @@
  *   defaults  <  config.json  <  .env file  <  process env vars
  *
  * Supported keys: api_url, token, log_level, harness, permission_mode, config_dir,
- * runner_id, heartbeat_interval, max_log_batch_size, poll_interval.
+ * runner_id, heartbeat_interval, max_log_batch_size, poll_interval, source_mode,
+ * local_path, base_repo_path, worktrees_dir, projects.
  */
 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { HarnessName, LogLevel, PermissionMode } from './types.js';
+import { isSourceMode, type ProjectSourceConfig, type SourceMode } from './source-mode.js';
 
 /** Fully-resolved runtime configuration. */
 export interface AgentConfig {
@@ -30,6 +32,22 @@ export interface AgentConfig {
   poll_interval: number;
   /** Max log lines per append_log batch. Seeded from the register response. */
   max_log_batch_size: number;
+
+  // --- SF-195: how the working tree is sourced per job ---------------------
+  /** Global default source mode (clone | local_path | worktree). */
+  source_mode: SourceMode;
+  /** Global default existing checkout to run in (local_path mode). */
+  local_path: string | null;
+  /** Global default base repo to `git worktree add` from (worktree mode). */
+  base_repo_path: string | null;
+  /** Global default directory for per-job worktrees (worktree mode). */
+  worktrees_dir: string | null;
+  /**
+   * Per-project overrides, keyed by repository (URL or `owner/repo`). Each entry
+   * overrides the global source keys for jobs whose repository matches the key.
+   * Persisted only in config.json (not via env vars).
+   */
+  projects: Record<string, ProjectSourceConfig>;
 }
 
 /** Default heartbeat interval (seconds) when the server gives none. */
@@ -60,6 +78,10 @@ const ENV_KEYS = {
   heartbeat_interval: 'VPS_AGENT_HEARTBEAT_INTERVAL',
   poll_interval: 'VPS_AGENT_POLL_INTERVAL',
   max_log_batch_size: 'VPS_AGENT_MAX_LOG_BATCH_SIZE',
+  source_mode: 'VPS_AGENT_SOURCE_MODE',
+  local_path: 'VPS_AGENT_LOCAL_PATH',
+  base_repo_path: 'VPS_AGENT_BASE_REPO_PATH',
+  worktrees_dir: 'VPS_AGENT_WORKTREES_DIR',
 } as const;
 
 function defaults(): AgentConfig {
@@ -74,6 +96,11 @@ function defaults(): AgentConfig {
     heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
     poll_interval: DEFAULT_POLL_INTERVAL,
     max_log_batch_size: DEFAULT_MAX_LOG_BATCH_SIZE,
+    source_mode: 'clone',
+    local_path: null,
+    base_repo_path: null,
+    worktrees_dir: null,
+    projects: {},
   };
 }
 
@@ -203,10 +230,27 @@ export function loadConfig(options: LoadOptions = {}): AgentConfig {
   const permissionMode = fromEnvLayers('permission_mode');
   if (permissionMode) base.permission_mode = permissionMode;
 
+  const sourceMode = fromEnvLayers('source_mode');
+  if (sourceMode && isSourceMode(sourceMode)) base.source_mode = sourceMode;
+
+  const localPath = fromEnvLayers('local_path');
+  if (localPath) base.local_path = localPath;
+
+  const baseRepoPath = fromEnvLayers('base_repo_path');
+  if (baseRepoPath) base.base_repo_path = baseRepoPath;
+
+  const worktreesDir = fromEnvLayers('worktrees_dir');
+  if (worktreesDir) base.worktrees_dir = worktreesDir;
+
   for (const key of NUMERIC_KEYS) {
     const n = coerceNumber(fromEnvLayers(key));
     if (n !== undefined) base[key] = n;
   }
+
+  // A hand-edited or stale config.json could carry an invalid source_mode; fall
+  // back to the safe clone default rather than dispatching on garbage.
+  if (!isSourceMode(base.source_mode)) base.source_mode = 'clone';
+  if (typeof base.projects !== 'object' || base.projects === null) base.projects = {};
 
   // Layer 4: explicit overrides (CLI flags). config_dir already applied above.
   if (options.overrides) {

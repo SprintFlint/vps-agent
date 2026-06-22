@@ -34,6 +34,9 @@ describe('public index exports', () => {
       'prepareWorkspace',
       'cleanupWorkspace',
       'jobsRoot',
+      'resolveSource',
+      'repoSlug',
+      'isSourceMode',
       'JobExecutor',
       'preflight',
       'formatReport',
@@ -64,5 +67,6 @@ describe('public index exports', () => {
     expect(typeof api.DEFAULT_MAX_LOG_BATCH_SIZE).toBe('number');
     expect(typeof api.VERSION).toBe('string');
     expect(api.REDACTED).toBe('***redacted***');
+    expect(api.SOURCE_MODES).toEqual(['clone', 'local_path', 'worktree']);
   });
 });

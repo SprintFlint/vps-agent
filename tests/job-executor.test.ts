@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JobExecutor } from '../src/job-executor.js';
@@ -44,6 +44,11 @@ function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
     heartbeat_interval: 30,
     poll_interval: 5,
     max_log_batch_size: 100,
+    source_mode: 'clone',
+    local_path: null,
+    base_repo_path: null,
+    worktrees_dir: null,
+    projects: {},
     ...overrides,
   };
 }
@@ -162,6 +167,46 @@ describe('JobExecutor', () => {
     expect(result.success).toBe(false);
     expect(result.summary).toContain('compile error');
     expect(existsSync(join(root, 'jobs', '53'))).toBe(false);
+  });
+
+  it('worktree mode: adds a worktree, opens a PR, removes the worktree (no clone)', async () => {
+    const base = join(root, 'base');
+    mkdirSync(base, { recursive: true });
+    const { exec, calls } = pipelineExec();
+    const executor = new JobExecutor({
+      harness: changingHarness,
+      config: config({ source_mode: 'worktree', base_repo_path: base }),
+      jobId: 60,
+      log: () => {},
+      exec,
+    });
+    const result = await executor.execute(issueContextFromPayload(payload({ issue_id: 60 })));
+    expect(result.pr_url).toBe(prUrl);
+    expect(calls.some((c) => c.args[0] === 'clone')).toBe(false);
+    expect(calls.some((c) => c.command === 'git' && c.args[0] === 'worktree' && c.args[1] === 'add')).toBe(true);
+    // worktree removed during cleanup
+    expect(calls.some((c) => c.args[0] === 'worktree' && c.args[1] === 'remove')).toBe(true);
+  });
+
+  it('local_path mode: runs in the existing checkout, stashes, restores (no clone)', async () => {
+    const checkout = join(root, 'checkout');
+    mkdirSync(checkout, { recursive: true });
+    const { exec, calls } = pipelineExec();
+    const executor = new JobExecutor({
+      harness: changingHarness,
+      config: config({ source_mode: 'local_path', local_path: checkout }),
+      jobId: 61,
+      log: () => {},
+      exec,
+    });
+    const result = await executor.execute(issueContextFromPayload(payload({ issue_id: 61 })));
+    expect(result.pr_url).toBe(prUrl);
+    expect(calls.some((c) => c.args[0] === 'clone')).toBe(false);
+    // stashed the dirty tree (pipelineExec reports changes), then restored it
+    expect(calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'push')).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'stash' && c.args[1] === 'pop')).toBe(true);
+    // the user's checkout is never deleted
+    expect(existsSync(checkout)).toBe(true);
   });
 
   it('aborts the harness on job timeout and reports failure', async () => {

@@ -69,6 +69,9 @@ vps-agent logs -f
 | `unregister`               | Clear the local token + runner id (local-only; see note).                   |
 | `config show`              | Print the effective config (token redacted).                                |
 | `config set <key> <value>` | Persist a single config key.                                                |
+| `project show`             | Print per-project working-tree source config.                               |
+| `project set <repo> <key> <value>` | Set a per-project source key (see Working-tree source).            |
+| `project remove <repo>`    | Remove a per-project source config entry.                                   |
 | `doctor`                   | Check that git/gh/claude are installed, authenticated, and compatible.      |
 | `version`                  | Print the version and runtime info.                                         |
 
@@ -120,6 +123,10 @@ owner-only (`0700`) directory.
 | `log_level`          | `VPS_AGENT_LOG_LEVEL`          | `info`                    | `error` \| `warn` \| `info` \| `debug`.              |
 | `runner_id`          | `VPS_AGENT_RUNNER_ID`          | _(set by register)_       | This runner's numeric id.                            |
 | `config_dir`         | `VPS_AGENT_CONFIG_DIR`         | `~/.vps-agent`            | Directory for config, logs, pidfile, job workspaces. |
+| `source_mode`        | `VPS_AGENT_SOURCE_MODE`        | `clone`                   | How the working tree is sourced (see below).         |
+| `local_path`         | `VPS_AGENT_LOCAL_PATH`         | _(none)_                  | Existing checkout to run in (`local_path` mode).     |
+| `base_repo_path`     | `VPS_AGENT_BASE_REPO_PATH`     | _(none)_                  | Base repo to add worktrees from (`worktree` mode).   |
+| `worktrees_dir`      | `VPS_AGENT_WORKTREES_DIR`      | `<config_dir>/worktrees`  | Where per-job worktrees are created (`worktree`).    |
 
 Set a key:
 
@@ -127,6 +134,9 @@ Set a key:
 vps-agent config set harness claude
 vps-agent config set permission_mode acceptEdits
 ```
+
+(`projects` — per-project overrides — is set with `vps-agent project set`; see
+[Working-tree source](#working-tree-source-modes).)
 
 ### Permission modes (`claude` harness)
 
@@ -141,6 +151,75 @@ The agent always uses **this machine's ambient git + `gh` credentials**. Run
 push, and PR creation. The agent neither handles nor injects any GitHub token,
 so there is no token-handling surface to secure.
 
+## Working-tree source modes
+
+By default the agent **clones the repo from scratch** into a fresh per-job
+directory. That is slow, and — crucially — a fresh clone has none of the local
+ENV / credentials / config your app needs to boot or test (e.g. a Rails app's
+`config/master.key`, a `.env`, service account files). Those live in *your*
+checkout and must stay there.
+
+`source_mode` lets you choose, per project, how the runner sources the working
+tree. **The runner never copies, syncs, logs, or transmits your secrets / ENV
+files** — it only runs inside the path you point it at.
+
+| Mode         | What it does                                                                                          | Use when                                                                 |
+| ------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `clone`      | Clones the repo into `~/.vps-agent/jobs/<job_id>/repo`; removes it after the job. (Original behaviour.) | Public/stateless repos that need nothing local to build or test.         |
+| `local_path` | Runs **inside an existing checkout** you already maintain, so the harness inherits its local secrets. | Apps that need `master.key` / `.env` / local config to boot or run tests. |
+| `worktree`   | `git worktree add`s a throwaway tree from a base repo, isolated but sharing the object store.          | You want isolation per job without re-cloning, and tracked files suffice. |
+
+> Untracked, git-ignored secrets (e.g. `config/master.key`) are **not** present
+> in a fresh `clone` or in a new `worktree`. If your app needs them, use
+> `local_path`, which runs in the checkout that already holds them.
+
+### `local_path` mode
+
+The runner `cd`s into the configured checkout, **stashes any uncommitted work**
+(tracked + untracked) so it starts clean, checks out the job's branch (creating
+it if needed), runs the harness, commits + pushes, and then **restores your
+original branch and pops the stash**. It never deletes your checkout, and
+git-ignored files (your secrets) are left untouched throughout.
+
+```bash
+vps-agent config set source_mode local_path
+vps-agent config set local_path /Users/you/code/your-app
+```
+
+### `worktree` mode
+
+The runner runs `git worktree add <worktrees_dir>/<job_id> <branch>` from your
+base repo, runs the harness there, and cleans up with `git worktree remove` when
+the job completes or is cancelled.
+
+```bash
+vps-agent config set source_mode worktree
+vps-agent config set base_repo_path /Users/you/code/your-app
+# optional; defaults to <config_dir>/worktrees
+vps-agent config set worktrees_dir /Users/you/.vps-agent/worktrees
+```
+
+### Per-project overrides
+
+A single runner can serve several repos. Override the source config per project
+with `vps-agent project set <repo> <key> <value>`, where `<repo>` is a repo URL
+or `owner/repo` (normalized to a stable key, so https/ssh forms match):
+
+```bash
+vps-agent project set acme/web        source_mode local_path
+vps-agent project set acme/web        local_path  /Users/you/code/web
+vps-agent project set acme/worker     source_mode worktree
+vps-agent project set acme/worker     base_repo_path /Users/you/code/worker
+vps-agent project show
+```
+
+A per-project `source_mode` always wins. As a convenience, if you set a
+`local_path` (or `base_repo_path`) but leave `source_mode` at the `clone`
+default, the runner infers `local_path` (or `worktree`) instead of cloning — set
+`source_mode clone` for that project to force a clone anyway.
+
+Each job's log states the resolved mode and the working directory it used.
+
 ## Job flow
 
 When the agent is running, for each claimed job it:
@@ -149,8 +228,10 @@ When the agent is running, for each claimed job it:
    stats, on an interval.
 2. **Polls** `next_job`. On a job, it flips to `busy` (single-job concurrency:
    it will not claim another job until this one finishes).
-3. Marks the job `running` and prepares an **isolated workspace**: clones the
-   repo into `~/.vps-agent/jobs/<job_id>/repo` and checks out the job's branch.
+3. Marks the job `running` and prepares the working tree per the configured
+   [`source_mode`](#working-tree-source-modes) — clone (default), an existing
+   `local_path`, or a `git worktree` — and checks out the job's branch. The log
+   records which mode and working directory were used.
 4. Runs the configured **harness** (e.g. Claude Code, headless) in that repo,
    **streaming** its stdout/stderr to the job log (`append_log`) as it goes.
 5. If the harness changed files: **commits**, **pushes** the branch, and opens a
@@ -176,6 +257,11 @@ the error and back off exponentially, then resume.
   directory; permissions are re-tightened on every write.
 - **No GitHub tokens in the agent.** Git/`gh` operations use the host's ambient
   credentials only; the agent never receives, stores, or injects a GitHub token.
+- **Your secrets stay yours.** In `local_path` / `worktree` modes the agent runs
+  inside a path you configure but never reads, copies, syncs, logs, or transmits
+  your ENV / credential files (e.g. `config/master.key`, `.env`). In `local_path`
+  mode it stashes and restores your uncommitted work and never deletes the
+  checkout; git-ignored files are left untouched.
 
 ## Logs and state
 
@@ -185,7 +271,10 @@ Everything lives under `config_dir` (default `~/.vps-agent`):
 - `agent.log` (rotated) — structured agent log; view with `vps-agent logs`.
 - `daemon.out.log` — captured stdout/stderr of a `--daemon` start.
 - `agent.pid` — pidfile for `start --daemon` / `stop`.
-- `jobs/<job_id>/` — per-job workspaces (auto-removed after each job).
+- `jobs/<job_id>/` — per-job clone workspaces (auto-removed after each job).
+- `worktrees/<job_id>/` — per-job worktrees in `worktree` mode (auto-removed
+  with `git worktree remove`). `local_path` mode uses your own checkout and
+  writes nothing here.
 
 ## Troubleshooting
 

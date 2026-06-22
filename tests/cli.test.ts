@@ -96,6 +96,61 @@ describe('config set', () => {
     expect(err).toContain('must be a number');
     expect(process.exitCode).toBe(1);
   });
+
+  it('persists a valid source_mode', async () => {
+    await run('config', 'set', 'source_mode', 'worktree');
+    const persisted = JSON.parse(readFileSync(configPath(dir), 'utf8'));
+    expect(persisted.source_mode).toBe('worktree');
+  });
+
+  it('rejects an invalid source_mode', async () => {
+    await run('config', 'set', 'source_mode', 'bogus');
+    expect(err).toContain('Invalid source_mode');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('persists local_path', async () => {
+    await run('config', 'set', 'local_path', '/Users/luke/code/app');
+    const persisted = JSON.parse(readFileSync(configPath(dir), 'utf8'));
+    expect(persisted.local_path).toBe('/Users/luke/code/app');
+  });
+});
+
+describe('project', () => {
+  it('sets and shows a per-project source config (keyed by slug)', async () => {
+    await run('project', 'set', 'git@github.com:Acme/Repo.git', 'source_mode', 'local_path');
+    await run('project', 'set', 'https://github.com/Acme/Repo.git', 'local_path', '/code/repo');
+    const persisted = JSON.parse(readFileSync(configPath(dir), 'utf8'));
+    expect(persisted.projects['acme/repo']).toEqual({
+      source_mode: 'local_path',
+      local_path: '/code/repo',
+    });
+
+    out = '';
+    await run('project', 'show');
+    expect(out).toContain('acme/repo');
+    expect(out).toContain('/code/repo');
+  });
+
+  it('rejects an unknown project key', async () => {
+    await run('project', 'set', 'acme/repo', 'bogus', 'x');
+    expect(err).toContain('Unknown project key');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('rejects an invalid source_mode', async () => {
+    await run('project', 'set', 'acme/repo', 'source_mode', 'nope');
+    expect(err).toContain('Invalid source_mode');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('removes a project entry', async () => {
+    await run('project', 'set', 'acme/repo', 'source_mode', 'worktree');
+    await run('project', 'remove', 'https://github.com/acme/repo.git');
+    const persisted = JSON.parse(readFileSync(configPath(dir), 'utf8'));
+    expect(persisted.projects['acme/repo']).toBeUndefined();
+    expect(out).toContain('Removed project acme/repo');
+  });
 });
 
 describe('register error path', () => {

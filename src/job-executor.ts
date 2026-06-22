@@ -22,7 +22,8 @@ import type { ExecFn } from './git-ops.js';
 import { defaultExec } from './exec.js';
 import { commitAndPush } from './git-ops.js';
 import { openPullRequest, buildPrBody } from './pr.js';
-import { prepareWorkspace, cleanupWorkspace, jobsRoot } from './workspace.js';
+import { prepareWorkspace, jobsRoot, type Workspace } from './workspace.js';
+import { resolveSource } from './source-mode.js';
 
 /** Outcome the executor hands back to the poller. */
 export interface ExecutionResult {
@@ -76,7 +77,8 @@ export class JobExecutor {
     const { config, log, exec } = this.opts;
     const cloneUrl = issue.cloneUrl ?? issue.repositoryUrl;
     const jobsDir = jobsRoot(config.config_dir);
-    let jobDir: string | null = null;
+    const source = resolveSource(config, issue);
+    let ws: Workspace | null = null;
 
     // Whole-job timeout: aborts the harness and short-circuits the rest.
     const controller = new AbortController();
@@ -86,7 +88,8 @@ export class JobExecutor {
     }, this.opts.timeoutMs);
 
     try {
-      const ws = await prepareWorkspace({
+      ws = await prepareWorkspace({
+        source,
         jobsDir,
         jobId: this.opts.jobId,
         cloneUrl,
@@ -94,7 +97,6 @@ export class JobExecutor {
         exec,
         log,
       });
-      jobDir = ws.jobDir;
 
       const outcome = await this.opts.harness.run(ws.repoDir, issue, {
         log,
@@ -142,7 +144,13 @@ export class JobExecutor {
       return { success: false, summary: message, changed: false };
     } finally {
       this.opts.clearTimer(timer);
-      if (jobDir) cleanupWorkspace(jobDir, (m) => log(m, 'debug'));
+      if (ws) {
+        try {
+          await ws.cleanup();
+        } catch {
+          /* cleanup is best-effort; never mask the job result */
+        }
+      }
     }
   }
 }

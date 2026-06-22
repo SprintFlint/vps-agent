@@ -13,6 +13,12 @@ import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
 import { Command } from 'commander';
 import { loadConfig, saveConfig, configPath } from './config.js';
+import {
+  isSourceMode,
+  repoSlug,
+  SOURCE_MODES,
+  type ProjectSourceConfig,
+} from './source-mode.js';
 import { Logger, tailLog } from './logger.js';
 import { VERSION } from './version.js';
 import { register as runRegister } from './register.js';
@@ -189,6 +195,11 @@ export function buildProgram(): Command {
         api_url: config.api_url,
         harness: config.harness,
         permission_mode: config.permission_mode,
+        source_mode: config.source_mode,
+        local_path: config.local_path,
+        base_repo_path: config.base_repo_path,
+        worktrees_dir: config.worktrees_dir,
+        projects_configured: Object.keys(config.projects ?? {}).length,
         heartbeat_interval: config.heartbeat_interval,
         poll_interval: config.poll_interval,
         log_level: config.log_level,
@@ -255,7 +266,8 @@ export function buildProgram(): Command {
     .command('set <key> <value>')
     .description(
       'Set a config key (api_url, token, log_level, harness, permission_mode, ' +
-        'heartbeat_interval, poll_interval, max_log_batch_size)',
+        'heartbeat_interval, poll_interval, max_log_batch_size, source_mode, ' +
+        'local_path, base_repo_path, worktrees_dir)',
     )
     .action((key: string, value: string) => {
       const stringKeys = [
@@ -264,6 +276,10 @@ export function buildProgram(): Command {
         'log_level',
         'harness',
         'permission_mode',
+        'source_mode',
+        'local_path',
+        'base_repo_path',
+        'worktrees_dir',
       ];
       const numericKeys = [
         'heartbeat_interval',
@@ -274,6 +290,13 @@ export function buildProgram(): Command {
       if (![...stringKeys, ...numericKeys].includes(key)) {
         process.stderr.write(
           `Unknown config key "${key}". Allowed: ${[...stringKeys, ...numericKeys].join(', ')}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (key === 'source_mode' && !isSourceMode(value)) {
+        process.stderr.write(
+          `Invalid source_mode "${value}". Allowed: ${SOURCE_MODES.join(', ')}\n`,
         );
         process.exitCode = 1;
         return;
@@ -291,6 +314,74 @@ export function buildProgram(): Command {
       }
       saveConfig({ [key]: coerced }, cfg.config_dir);
       process.stdout.write(`Set ${key} in ${configPath(cfg.config_dir)}\n`);
+    });
+
+  const project = program
+    .command('project')
+    .description('View or set per-project working-tree source config (SF-195)');
+
+  const PROJECT_KEYS = ['source_mode', 'local_path', 'base_repo_path', 'worktrees_dir'] as const;
+
+  project
+    .command('show', { isDefault: true })
+    .description('Print the per-project source config (keyed by repository)')
+    .action(() => {
+      const cfg = loadConfig();
+      process.stdout.write(`${JSON.stringify(cfg.projects ?? {}, null, 2)}\n`);
+      process.stdout.write(`\nconfig file: ${configPath(cfg.config_dir)}\n`);
+    });
+
+  project
+    .command('set <repo> <key> <value>')
+    .description(
+      'Set a per-project source key. <repo> is a repo URL or "owner/repo". ' +
+        `Keys: ${PROJECT_KEYS.join(', ')}`,
+    )
+    .action((repo: string, key: string, value: string) => {
+      if (!(PROJECT_KEYS as readonly string[]).includes(key)) {
+        process.stderr.write(
+          `Unknown project key "${key}". Allowed: ${PROJECT_KEYS.join(', ')}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (key === 'source_mode' && !isSourceMode(value)) {
+        process.stderr.write(
+          `Invalid source_mode "${value}". Allowed: ${SOURCE_MODES.join(', ')}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const slug = repoSlug(repo);
+      if (!slug) {
+        process.stderr.write(`Could not derive an "owner/repo" key from "${repo}".\n`);
+        process.exitCode = 1;
+        return;
+      }
+      const cfg = loadConfig();
+      const projects = { ...(cfg.projects ?? {}) };
+      const entry: ProjectSourceConfig = { ...(projects[slug] ?? {}) };
+      (entry as Record<string, string>)[key] = value;
+      projects[slug] = entry;
+      saveConfig({ projects }, cfg.config_dir);
+      process.stdout.write(`Set ${key}=${value} for project ${slug} in ${configPath(cfg.config_dir)}\n`);
+    });
+
+  project
+    .command('remove <repo>')
+    .description('Remove a project entry (its key normalizes to "owner/repo")')
+    .action((repo: string) => {
+      const slug = repoSlug(repo);
+      const cfg = loadConfig();
+      const projects = { ...(cfg.projects ?? {}) };
+      const key = slug && slug in projects ? slug : repo in projects ? repo : null;
+      if (!key) {
+        process.stdout.write(`No project entry found for "${repo}".\n`);
+        return;
+      }
+      delete projects[key];
+      saveConfig({ projects }, cfg.config_dir);
+      process.stdout.write(`Removed project ${key} from ${configPath(cfg.config_dir)}\n`);
     });
 
   program
