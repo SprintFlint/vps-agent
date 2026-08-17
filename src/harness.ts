@@ -8,6 +8,7 @@
 
 import type { HarnessName, JobPayload, PermissionMode } from './types.js';
 import { ClaudeCodeHarness } from './claude-harness.js';
+import { PrimeAgentHarness } from './prime-agent-harness.js';
 
 /**
  * Normalized job context handed to a harness.
@@ -165,5 +166,6 @@ export class NoopHarness implements Harness {
 export function defaultHarnessRegistry(): HarnessRegistry {
   return new HarnessRegistry()
     .register('noop', () => new NoopHarness())
-    .register('claude', () => new ClaudeCodeHarness());
+    .register('claude', () => new ClaudeCodeHarness())
+    .register('prime-agent', () => new PrimeAgentHarness());
 }

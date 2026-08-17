@@ -7,6 +7,7 @@
  *   - gh installed and authenticated (the agent uses the host's ambient gh
  *     credentials, so an authenticated `gh auth login` is always required),
  *   - claude installed (only required when the configured harness is 'claude').
+ *   - prime-agent installed (only required when the configured harness is 'prime-agent').
  *
  * Tool detection is injectable so tests don't touch the real binaries.
  */
@@ -118,9 +119,25 @@ async function checkClaude(input: PreflightInput): Promise<CheckResult> {
   return { name: 'claude', ok: true, required, detail: res.out.trim().split('\n')[0] ?? 'claude ok' };
 }
 
+async function checkPrimeAgent(input: PreflightInput): Promise<CheckResult> {
+  const required = input.harness === 'prime-agent';
+  const res = await tryExec(input.exec, 'prime-agent', ['-v']);
+  if (!res.ok) {
+    return {
+      name: 'prime-agent',
+      ok: !required,
+      required,
+      detail: required
+        ? 'Prime Agent CLI (prime-agent) not found, but harness=prime-agent needs it. Install it and authenticate with `/login`.'
+        : 'prime-agent not found (not required for the current harness).',
+    };
+  }
+  return { name: 'prime-agent', ok: true, required, detail: res.out.trim().split('\n')[0] ?? 'prime-agent ok' };
+}
+
 /** Run all preflight checks and aggregate. */
 export async function preflight(input: PreflightInput): Promise<PreflightReport> {
-  const checks = await Promise.all([checkGit(input), checkGh(input), checkClaude(input)]);
+  const checks = await Promise.all([checkGit(input), checkGh(input), checkClaude(input), checkPrimeAgent(input)]);
   const ok = checks.every((c) => c.ok || !c.required);
   return { ok, checks };
 }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`prime-agent` harness.** Autoplay can now run Prime Agent headless
+  (`prime-agent -p --autonomous`) instead of Claude Code. Set
+  `vps-agent config set harness prime-agent`. `noop` and `claude` remain
+  available; `doctor` / `start` require the matching CLI only for the
+  configured harness.
+
 ### Fixed
 
 - **Never push to a `null` branch.** When the server's `branch_name` arrives

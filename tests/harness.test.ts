@@ -70,6 +70,7 @@ describe('HarnessRegistry', () => {
     const registry = defaultHarnessRegistry();
     expect(registry.has('noop')).toBe(true);
     expect(registry.names()).toContain('noop');
+    expect(registry.names()).toContain('prime-agent');
     expect(registry.resolve('noop')).toBeInstanceOf(NoopHarness);
   });
 

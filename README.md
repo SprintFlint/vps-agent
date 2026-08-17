@@ -3,7 +3,7 @@
 The SprintFlint VPS agent. Install it on a VPS (or any Linux/macOS host) to turn
 that machine into a SprintFlint **runner**: it registers with SprintFlint,
 heartbeats its health, claims Autoplay jobs, runs them with a code harness
-(Claude Code), opens a pull request with the result, and streams logs back to
+(Claude Code or Prime Agent), opens a pull request with the result, and streams logs back to
 your SprintFlint dashboard in real time.
 
 It is a Node/TypeScript CLI that talks to the SprintFlint server API over HTTPS
@@ -17,7 +17,7 @@ outbound requests.
 - **GitHub CLI (`gh`)**, authenticated with `gh auth login` **before** starting
   the agent. The agent clones, pushes, and opens PRs using this machine's
   ambient git + `gh` credentials; it never handles GitHub tokens itself.
-- **Claude Code (`claude`)**, authenticated once, when running the `claude`
+- **A coding harness CLI**, authenticated once: Claude Code (`claude`) or Prime Agent (`prime-agent`), depending on `harness`.
   harness.
 
 Run `vps-agent doctor` at any time to verify these.
@@ -72,7 +72,7 @@ vps-agent logs -f
 | `project show`             | Print per-project working-tree source config.                               |
 | `project set <repo> <key> <value>` | Set a per-project source key (see Working-tree source).            |
 | `project remove <repo>`    | Remove a per-project source config entry.                                   |
-| `doctor`                   | Check that git/gh/claude are installed, authenticated, and compatible.      |
+| `doctor`                   | Check that git/gh and the configured harness CLI are installed and ready.   |
 | `version`                  | Print the version and runtime info.                                         |
 
 ### `register` — two modes
@@ -115,7 +115,7 @@ owner-only (`0700`) directory.
 | -------------------- | ------------------------------ | ------------------------- | ---------------------------------------------------- |
 | `api_url`            | `VPS_AGENT_API_URL`            | `https://sprintflint.com` | SprintFlint server base URL.                         |
 | `token`              | `VPS_AGENT_TOKEN`              | _(none)_                  | Runner token, sent as `X-Runner-Token`.              |
-| `harness`            | `VPS_AGENT_HARNESS`            | `noop`                    | Job harness: `noop` or `claude`.                     |
+| `harness`            | `VPS_AGENT_HARNESS`            | `noop`                    | Job harness: `noop`, `claude`, or `prime-agent`.     |
 | `permission_mode`    | `VPS_AGENT_PERMISSION_MODE`    | `default`                 | Permission mode for the harness (see below).         |
 | `heartbeat_interval` | `VPS_AGENT_HEARTBEAT_INTERVAL` | `30`                      | Seconds between heartbeats (server may shorten).     |
 | `poll_interval`      | `VPS_AGENT_POLL_INTERVAL`      | `5`                       | Seconds between idle `next_job` polls.               |
@@ -232,7 +232,7 @@ When the agent is running, for each claimed job it:
    [`source_mode`](#working-tree-source-modes) — clone (default), an existing
    `local_path`, or a `git worktree` — and checks out the job's branch. The log
    records which mode and working directory were used.
-4. Runs the configured **harness** (e.g. Claude Code, headless) in that repo,
+4. Runs the configured **harness** (Claude Code or Prime Agent, headless) in that repo,
    **streaming** its stdout/stderr to the job log (`append_log`) as it goes.
 5. If the harness changed files: **commits**, **pushes** the branch, and opens a
    **pull request** with `gh pr create` (it never merges).
@@ -283,6 +283,8 @@ Everything lives under `config_dir` (default `~/.vps-agent`):
   authenticated `gh` session.
 - **`doctor` fails on `claude`** — install Claude Code and run `claude` once to
   authenticate; only required when `harness=claude`.
+- **`doctor` fails on `prime-agent`** — install Prime Agent and authenticate with `/login`;
+  only required when `harness=prime-agent`.
 - **`Agent already running`** — a live pidfile exists. Use `vps-agent stop`, or
   pass a different `--pidfile`.
 - **Nothing happens after `start`** — check `vps-agent logs -f`; confirm

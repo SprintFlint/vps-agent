@@ -81,6 +81,32 @@ describe('preflight', () => {
     expect(report.checks.find((c) => c.name === 'claude')?.required).toBe(true);
   });
 
+  it('does not require prime-agent for other harnesses', async () => {
+    const exec = execFor({
+      'git --version': ok('git version 2.39.0'),
+      'gh --version': ok('gh version 2.40.0'),
+      'gh auth': ok('ok'),
+      'claude --version': fail(),
+      'prime-agent -v': fail(),
+    });
+    const report = await preflight({ harness: 'noop', exec });
+    expect(report.ok).toBe(true);
+    expect(report.checks.find((c) => c.name === 'prime-agent')?.required).toBe(false);
+  });
+
+  it('requires prime-agent when harness=prime-agent', async () => {
+    const exec = execFor({
+      'git --version': ok('git version 2.39.0'),
+      'gh --version': ok('gh version 2.40.0'),
+      'gh auth': ok('ok'),
+      'claude --version': fail(),
+      'prime-agent -v': fail(),
+    });
+    const report = await preflight({ harness: 'prime-agent', exec });
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((c) => c.name === 'prime-agent')?.required).toBe(true);
+  });
+
   it('formatReport renders ok/FAIL markers', () => {
     const text = formatReport({
       ok: false,
