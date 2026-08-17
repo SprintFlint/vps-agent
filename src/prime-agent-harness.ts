@@ -157,17 +157,20 @@ export class PrimeAgentHarness implements Harness {
           });
           return;
         }
+        const summaryTail = tail.trim().split('\n').slice(-8).join('\n');
         if (code === 0) {
           const summary =
-            tail.trim().split('\n').slice(-5).join('\n') ||
+            summaryTail ||
             `prime-agent completed issue ${issue.issueReference ?? `#${issue.issueId}`}`;
           finish({ success: true, summary, changed: true });
           return;
         }
         finish({
           success: false,
-          summary: `prime-agent exited with code ${code ?? 'signal'}: ${tail.trim().slice(-500) || '(no output)'}`,
-          changed: false,
+          summary: `prime-agent exited with code ${code ?? 'signal'}: ${summaryTail.slice(-800) || '(no output)'}`,
+          // Partial work is common (provider 403, timeout after edits). The
+          // executor commits if the tree is dirty, so don't claim "no changes".
+          changed: true,
         });
       });
     });
