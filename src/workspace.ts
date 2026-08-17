@@ -154,11 +154,26 @@ async function prepareWorktree(opts: PrepareWorkspaceOptions): Promise<Workspace
   log(`Source mode: worktree${projectNote(opts.source)} — adding ${repoDir} from base repo ${base}`);
 
   // Reuse an existing local branch when present; otherwise create it (-b).
+  // If that branch is already checked out in another worktree, fall back to a
+  // unique per-job branch so Autoplay can still run.
   const exists = await localBranchExists(opts.exec, base, opts.branch);
   const addArgs = exists
     ? ['worktree', 'add', repoDir, opts.branch]
     : ['worktree', 'add', '-b', opts.branch, repoDir];
-  assertOk(await opts.exec('git', addArgs, { cwd: base }), 'git worktree add');
+  const added = await opts.exec('git', addArgs, { cwd: base });
+  if (added.exitCode !== 0) {
+    const fallback = `${opts.branch}-job-${opts.jobId}`;
+    log(
+      `git worktree add ${opts.branch} failed (${(added.stderr || added.stdout).trim() || 'busy branch'}); using ${fallback}`,
+      'warn',
+    );
+    assertOk(
+      await opts.exec('git', ['worktree', 'add', '-B', fallback, repoDir, exists ? opts.branch : 'HEAD'], {
+        cwd: base,
+      }),
+      `git worktree add -B ${fallback}`,
+    );
+  }
   log(`Working directory: ${repoDir}`);
 
   return {

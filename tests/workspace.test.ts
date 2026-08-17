@@ -153,6 +153,35 @@ describe('prepareWorkspace — worktree mode', () => {
     expect(ws.repoDir).toBe(join(root, 'wt', '7'));
   });
 
+  it('falls back to a per-job branch when the target branch is already checked out', async () => {
+    const base = join(root, 'base');
+    mkdirSync(base, { recursive: true });
+    const { exec, calls } = recorder((c) => {
+      if (c.args[0] === 'worktree' && c.args[1] === 'add' && c.args[2] !== '-B') {
+        return fail("fatal: 'existing' is already checked out");
+      }
+      return ok;
+    });
+    const ws = await prepareWorkspace({
+      source: { mode: 'worktree', baseRepoPath: base, worktreesDir: join(root, 'wt') },
+      jobsDir: join(root, 'jobs'),
+      jobId: 8,
+      cloneUrl: 'x',
+      branch: 'existing',
+      exec,
+    });
+    const fallback = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add' && c.args[2] === '-B');
+    expect(fallback?.args).toEqual([
+      'worktree',
+      'add',
+      '-B',
+      'existing-job-8',
+      join(root, 'wt', '8'),
+      'existing',
+    ]);
+    expect(ws.repoDir).toBe(join(root, 'wt', '8'));
+  });
+
   it('throws when base_repo_path is missing', async () => {
     const { exec } = recorder();
     await expect(
