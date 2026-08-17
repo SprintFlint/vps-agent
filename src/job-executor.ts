@@ -103,8 +103,11 @@ export class JobExecutor {
         signal: controller.signal,
       });
 
-      if (!outcome.success) {
-        return { success: false, summary: outcome.summary, changed: outcome.changed };
+      // Prime Agent often exits non-zero after making good edits (provider
+      // 403 mid-run, leftover dirty lockfile, etc). If the tree is dirty,
+      // still commit/push/PR; don't throw the work away.
+      if (!outcome.success && !outcome.changed) {
+        return { success: false, summary: outcome.summary, changed: false };
       }
 
       if (!outcome.changed) {
@@ -124,6 +127,9 @@ export class JobExecutor {
 
       if (!pushed) {
         // Harness claimed changes but the tree was clean; nothing to PR.
+        if (!outcome.success) {
+          return { success: false, summary: `${outcome.summary} (no file changes detected)`, changed: false };
+        }
         return { success: true, summary: `${outcome.summary} (no file changes detected)`, changed: false };
       }
 

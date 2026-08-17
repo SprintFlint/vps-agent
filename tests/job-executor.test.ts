@@ -169,6 +169,26 @@ describe('JobExecutor', () => {
     expect(existsSync(join(root, 'jobs', '53'))).toBe(false);
   });
 
+  it('still commits and opens a PR when the harness fails after changing files', async () => {
+    const { exec, calls } = pipelineExec();
+    const failingDirty: Harness = {
+      run: async () => ({ success: false, summary: 'provider 403 after edits', changed: true }),
+    };
+    const executor = new JobExecutor({
+      harness: failingDirty,
+      config: config(),
+      jobId: 54,
+      log: () => {},
+      exec,
+    });
+    const result = await executor.execute(issueContextFromPayload(payload({ issue_id: 54 })));
+    expect(result.success).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.pr_url).toBe(prUrl);
+    expect(calls.some((c) => c.command === 'git' && c.args[0] === 'commit')).toBe(true);
+    expect(calls.some((c) => c.command === 'gh')).toBe(true);
+  });
+
   it('worktree mode: adds a worktree, opens a PR, removes the worktree (no clone)', async () => {
     const base = join(root, 'base');
     mkdirSync(base, { recursive: true });
@@ -211,7 +231,7 @@ describe('JobExecutor', () => {
 
   it('aborts the harness on job timeout and reports failure', async () => {
     vi.useFakeTimers();
-    const { exec } = pipelineExec();
+    const { exec } = pipelineExec({ changes: false });
     // Harness resolves only when its abort signal fires.
     const slow: Harness = {
       run: async (_w, _i, o) =>
@@ -224,12 +244,12 @@ describe('JobExecutor', () => {
     const executor = new JobExecutor({
       harness: slow,
       config: config(),
-      jobId: 54,
+      jobId: 99,
       log: () => {},
       exec,
       timeoutMs: 1000,
     });
-    const p = executor.execute(issueContextFromPayload(payload({ issue_id: 54 })));
+    const p = executor.execute(issueContextFromPayload(payload({ issue_id: 99 })));
     await Promise.resolve(); // let prepareWorkspace's awaits settle
     await vi.advanceTimersByTimeAsync(1000);
     const result = await p;
